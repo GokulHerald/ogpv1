@@ -24,6 +24,10 @@ export function setMatchResult(matchId, data) {
   return api.post(`/matches/${matchId}/result`, data);
 }
 
+export function submitBrStats(matchId, squadStats) {
+  return api.post(`/matches/${matchId}/br-stats`, { squadStats });
+}
+
 export function getLeaderboard(tournamentId) {
   return api.get(`/leaderboard/tournament/${tournamentId}`);
 }

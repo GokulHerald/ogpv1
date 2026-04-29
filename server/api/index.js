@@ -3,11 +3,23 @@ const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 
+const connectDB = require('../config/db');
+
 const app = express();
 
 app.use(helmet());
 app.use(cors());
 app.use(express.json());
+
+/** Ensure MongoDB is connected before any API route (Vercel cold starts skip /health). */
+async function ensureDb(req, res, next) {
+  try {
+    await connectDB();
+    next();
+  } catch (err) {
+    next(err);
+  }
+}
 
 app.get('/', (req, res) => {
   res.json({ 
@@ -26,7 +38,6 @@ const apiLimiter = rateLimit({
 
 app.get('/health', async (req, res) => {
   try {
-    const connectDB = require('../config/db');
     await connectDB();
     res.json({ status: 'ok', db: 'connected' });
   } catch (err) {
@@ -35,7 +46,7 @@ app.get('/health', async (req, res) => {
 });
 
 const apiV1 = require('../routes/api.v1.routes');
-app.use('/api/v1', apiLimiter, apiV1);
+app.use('/api/v1', apiLimiter, ensureDb, apiV1);
 
 app.use((err, req, res, next) => {
   console.error(err.stack);

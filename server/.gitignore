@@ -1,0 +1,21 @@
+node_modules/
+dist/
+build/
+.next/
+.cache/
+
+.env
+.env.local
+
+# Firebase Admin SDK (do not commit)
+**/firebase-service-account.json
+gaming-ops-*-firebase-adminsdk-*.json
+.env.*.local
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+.DS_Store
+

@@ -21,6 +21,7 @@ const tabs = [
   { id: 'create', label: 'Create' },
   { id: 'active', label: 'Active matches' },
   { id: 'verify', label: 'Verify results' },
+  { id: 'stats', label: 'Stats' },
 ];
 
 const schema = z
@@ -79,6 +80,9 @@ function BrLobbyOrganizerCard({ match, tournamentName, tournamentId, onRefresh }
   const slots = match.brTeams || [];
   const [pickTeamId, setPickTeamId] = useState('');
   const [declaring, setDeclaring] = useState(false);
+  const [savingStats, setSavingStats] = useState(false);
+  const [showStatsEditor, setShowStatsEditor] = useState(false);
+  const [statsDraft, setStatsDraft] = useState(() => ({}));
 
   const toggleTeam = (tid) => {
     setExpanded((prev) => ({ ...prev, [tid]: !prev[tid] }));
@@ -109,6 +113,63 @@ function BrLobbyOrganizerCard({ match, tournamentName, tournamentId, onRefresh }
       toast.error(e.response?.data?.message || 'Failed to set winner');
     } finally {
       setDeclaring(false);
+    }
+  };
+
+  const roster = useMemo(() => {
+    const rows = [];
+    (slots || []).forEach((slot) => {
+      const t = slot.team;
+      const teamId = String(t?._id || t);
+      const teamName =
+        typeof t === 'object' && t != null ? t.name?.trim() || t.captain?.username || 'Squad' : 'Squad';
+      (slot.players || []).forEach((p) => {
+        const uid = String(p?._id || p);
+        rows.push({
+          userId: uid,
+          username: p?.username || uid.slice(-6),
+          teamId,
+          teamName,
+        });
+      });
+    });
+    return rows;
+  }, [slots]);
+
+  useEffect(() => {
+    if (!showStatsEditor) return;
+    const existing = match.result?.squadStats || [];
+    setStatsDraft(() => {
+      const next = {};
+      roster.forEach((r) => {
+        const row = existing.find((s) => String(s.user?._id || s.user) === String(r.userId));
+        next[r.userId] = {
+          kills: row?.kills ?? 0,
+          placement: row?.placement ?? '',
+          score: row?.score ?? 0,
+        };
+      });
+      return next;
+    });
+  }, [showStatsEditor, roster, match.result?.squadStats]);
+
+  const saveBrStats = async () => {
+    try {
+      setSavingStats(true);
+      const payload = roster.map((r) => ({
+        userId: r.userId,
+        kills: Number(statsDraft[r.userId]?.kills ?? 0),
+        placement: statsDraft[r.userId]?.placement === '' ? null : Number(statsDraft[r.userId]?.placement),
+        score: Number(statsDraft[r.userId]?.score ?? 0),
+      }));
+      await matchApi.submitBrStats(match._id, payload);
+      toast.success('BR per-player stats saved');
+      setShowStatsEditor(false);
+      await onRefresh();
+    } catch (e) {
+      toast.error(e.response?.data?.message || 'Failed to save BR stats');
+    } finally {
+      setSavingStats(false);
     }
   };
 
@@ -246,6 +307,92 @@ function BrLobbyOrganizerCard({ match, tournamentName, tournamentId, onRefresh }
           </Button>
         </div>
       ) : null}
+
+      <div className="mt-6 border-t border-brand-border pt-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs font-semibold uppercase tracking-wider text-brand-muted">
+            Per-player BR stats (manual)
+          </p>
+          <Button
+            type="button"
+            variant="secondary"
+            className="!px-3 !py-2 text-xs"
+            onClick={() => setShowStatsEditor((v) => !v)}
+          >
+            {showStatsEditor ? 'Close editor' : 'Enter / edit BR stats'}
+          </Button>
+        </div>
+
+        {showStatsEditor ? (
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full min-w-[720px] text-left text-sm">
+              <thead>
+                <tr className="border-b border-brand-border text-xs uppercase tracking-wider text-brand-muted">
+                  <th className="py-2 pr-4">Player</th>
+                  <th className="py-2 pr-4">Team</th>
+                  <th className="py-2 pr-4">Kills</th>
+                  <th className="py-2 pr-4">Placement</th>
+                  <th className="py-2 pr-4">Score</th>
+                </tr>
+              </thead>
+              <tbody>
+                {roster.map((r) => (
+                  <tr key={r.userId} className="border-b border-brand-border/60">
+                    <td className="py-2 pr-4 text-brand-light">{r.username}</td>
+                    <td className="py-2 pr-4 text-brand-muted">{r.teamName}</td>
+                    <td className="py-2 pr-4">
+                      <input
+                        className="input h-9 w-28 bg-brand-card"
+                        type="number"
+                        min="0"
+                        value={statsDraft[r.userId]?.kills ?? 0}
+                        onChange={(e) =>
+                          setStatsDraft((prev) => ({
+                            ...prev,
+                            [r.userId]: { ...(prev[r.userId] || {}), kills: e.target.value },
+                          }))
+                        }
+                      />
+                    </td>
+                    <td className="py-2 pr-4">
+                      <input
+                        className="input h-9 w-28 bg-brand-card"
+                        type="number"
+                        min="1"
+                        value={statsDraft[r.userId]?.placement ?? ''}
+                        onChange={(e) =>
+                          setStatsDraft((prev) => ({
+                            ...prev,
+                            [r.userId]: { ...(prev[r.userId] || {}), placement: e.target.value },
+                          }))
+                        }
+                      />
+                    </td>
+                    <td className="py-2 pr-4">
+                      <input
+                        className="input h-9 w-28 bg-brand-card"
+                        type="number"
+                        value={statsDraft[r.userId]?.score ?? 0}
+                        onChange={(e) =>
+                          setStatsDraft((prev) => ({
+                            ...prev,
+                            [r.userId]: { ...(prev[r.userId] || {}), score: e.target.value },
+                          }))
+                        }
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div className="mt-3 flex justify-end">
+              <Button variant="primary" className="!px-4 !py-2 text-xs" disabled={savingStats} onClick={saveBrStats}>
+                {savingStats ? 'Saving…' : 'Save BR stats'}
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -396,6 +543,9 @@ export function AdminDashboardPage() {
   const [matchesByT, setMatchesByT] = useState({});
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [statsTournamentId, setStatsTournamentId] = useState('');
+  const [statsLoading, setStatsLoading] = useState(false);
+  const [statsData, setStatsData] = useState(null);
   const [resultModal, setResultModal] = useState({ open: false, match: null, tournamentId: null });
   const [resultForm, setResultForm] = useState({
     winnerId: '',
@@ -437,6 +587,19 @@ export function AdminDashboardPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const loadStats = async (tid) => {
+    if (!tid) return;
+    try {
+      setStatsLoading(true);
+      const { data } = await tournamentApi.getAdminPlayerStats(tid);
+      setStatsData(data);
+    } catch (e) {
+      toast.error(e.response?.data?.message || 'Failed to load stats');
+    } finally {
+      setStatsLoading(false);
+    }
+  };
 
   const {
     register,
@@ -748,6 +911,117 @@ export function AdminDashboardPage() {
                   onRefresh={load}
                 />
               ))
+            )}
+          </div>
+        ) : null}
+
+        {!loading && tab === 'stats' ? (
+          <div className="space-y-4">
+            <div className="card-surface flex flex-col gap-3 p-4 sm:flex-row sm:items-end sm:justify-between">
+              <div className="min-w-0 flex-1">
+                <p className="text-xs uppercase tracking-wider text-brand-muted">Tournament</p>
+                <select
+                  className="input mt-2 w-full bg-brand-card"
+                  value={statsTournamentId}
+                  onChange={(e) => {
+                    setStatsTournamentId(e.target.value);
+                    setStatsData(null);
+                  }}
+                >
+                  <option value="">Select a tournament</option>
+                  {tournaments.map((t) => (
+                    <option key={t._id} value={t._id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <Button
+                variant="primary"
+                disabled={!statsTournamentId || statsLoading}
+                onClick={() => loadStats(statsTournamentId)}
+                className="sm:w-auto"
+              >
+                {statsLoading ? 'Loading…' : 'Load stats'}
+              </Button>
+            </div>
+
+            {!statsData ? (
+              <p className="text-brand-muted">Pick a tournament to view player totals and per-match stats.</p>
+            ) : (
+              <div className="space-y-4">
+                <div className="card-surface p-4">
+                  <p className="text-xs uppercase tracking-wider text-brand-muted">Summary</p>
+                  <p className="mt-1 text-sm text-brand-light">
+                    Players: <strong>{statsData.players?.length ?? 0}</strong> · Matches:{' '}
+                    <strong>{statsData.matchesCount ?? 0}</strong>
+                  </p>
+                </div>
+
+                <div className="card-surface overflow-x-auto p-4">
+                  <table className="w-full min-w-[980px] text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-brand-border text-xs uppercase tracking-wider text-brand-muted">
+                        <th className="pb-2 pr-4">Player</th>
+                        <th className="pb-2 pr-4">Points</th>
+                        <th className="pb-2 pr-4">Score</th>
+                        <th className="pb-2 pr-4">W</th>
+                        <th className="pb-2 pr-4">L</th>
+                        <th className="pb-2 pr-4">Kills</th>
+                        <th className="pb-2 pr-4">Avg placement</th>
+                        <th className="pb-2 pr-4">Streams</th>
+                        <th className="pb-2 pr-4">Proofs</th>
+                        <th className="pb-2">Per-match</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(statsData.players || []).map((p) => (
+                        <tr key={p.playerId} className="border-b border-brand-border/60 align-top">
+                          <td className="py-2 pr-4 text-brand-light">{p.player?.username || p.playerId}</td>
+                          <td className="py-2 pr-4">{p.totals?.totalPoints ?? 0}</td>
+                          <td className="py-2 pr-4">{p.totals?.totalScore ?? 0}</td>
+                          <td className="py-2 pr-4">{p.totals?.wins ?? 0}</td>
+                          <td className="py-2 pr-4">{p.totals?.losses ?? 0}</td>
+                          <td className="py-2 pr-4">{p.totals?.kills ?? 0}</td>
+                          <td className="py-2 pr-4">{p.totals?.avgPlacement ?? '—'}</td>
+                          <td className="py-2 pr-4">{p.totals?.streamsSubmitted ?? 0}</td>
+                          <td className="py-2 pr-4">{p.totals?.proofsSubmitted ?? 0}</td>
+                          <td className="py-2">
+                            <details className="rounded-lg border border-brand-border bg-brand-subtle/20 p-3">
+                              <summary className="cursor-pointer text-xs font-semibold text-brand-orange">
+                                View ({p.perMatch?.length ?? 0})
+                              </summary>
+                              <div className="mt-3 space-y-2 text-xs text-brand-muted">
+                                {(p.perMatch || []).map((m) => (
+                                  <div key={m.matchId} className="rounded-md border border-brand-border/60 p-2">
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                      <span className="text-brand-light">
+                                        {m.kind === 'br_lobby'
+                                          ? 'BR lobby'
+                                          : `Round ${m.round} · Match ${m.matchNumber}`}
+                                      </span>
+                                      <span>{m.status}</span>
+                                    </div>
+                                    <div className="mt-1 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                                      <span>Kills: {m.kills ?? 0}</span>
+                                      <span>Placement: {m.placement ?? '—'}</span>
+                                      <span>Score: {m.score ?? 0}</span>
+                                      <span>
+                                        Stream: {m.streamSubmitted ? 'yes' : 'no'} · Proof:{' '}
+                                        {m.proofSubmitted ? 'yes' : 'no'}
+                                      </span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </details>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             )}
           </div>
         ) : null}

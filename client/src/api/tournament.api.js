@@ -27,3 +27,7 @@ export function registerSquad(tournamentId, body) {
 export function setBrWinner(tournamentId, teamId) {
   return api.post(`/tournaments/${tournamentId}/br-winner`, { teamId });
 }
+
+export function getAdminPlayerStats(tournamentId) {
+  return api.get(`/tournaments/${tournamentId}/admin/player-stats`);
+}

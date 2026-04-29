@@ -30,9 +30,7 @@ function DesktopNavLink({ to, icon: Icon, label, end }) {
       }
     >
       <Icon className="h-5 w-5 shrink-0" strokeWidth={1.75} />
-      <span className="max-w-0 overflow-hidden whitespace-nowrap text-sm font-medium opacity-0 transition-all duration-300 group-hover:max-w-[160px] group-hover:opacity-100">
-        {label}
-      </span>
+      <span className="whitespace-nowrap text-sm font-medium">{label}</span>
     </NavLink>
   );
 }
@@ -62,13 +60,13 @@ export function Sidebar() {
     <>
       <aside
         className={clsx(
-          'group fixed left-0 top-0 z-40 hidden h-full w-[72px] flex-col border-r border-[#1A1A1A] bg-[#0A0A0A] transition-[width] duration-300 ease-out hover:w-[220px] md:flex'
+          'fixed left-0 top-0 z-40 hidden h-full w-[220px] flex-col border-r border-[#1A1A1A] bg-[#0A0A0A] md:flex'
         )}
       >
         <div className="flex h-16 shrink-0 items-center border-b border-[#1A1A1A] px-3">
           <Link to="/" className="flex items-center gap-2 overflow-hidden">
             <Trophy className="h-8 w-8 shrink-0 text-brand-red" />
-            <span className="max-w-0 overflow-hidden whitespace-nowrap font-display text-xl font-black tracking-tight text-brand-light opacity-0 transition-all duration-300 group-hover:max-w-[100px] group-hover:opacity-100">
+            <span className="whitespace-nowrap font-display text-xl font-black tracking-tight text-brand-light">
               OGP
             </span>
           </Link>
@@ -90,7 +88,7 @@ export function Sidebar() {
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-red to-brand-orange text-xs font-bold text-white">
                   {(user?.username || '?').slice(0, 2).toUpperCase()}
                 </div>
-                <div className="min-w-0 max-w-0 overflow-hidden opacity-0 transition-all duration-300 group-hover:max-w-[140px] group-hover:opacity-100">
+                <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-brand-light">{user?.username}</p>
                   <p className="truncate text-xs capitalize text-brand-muted">{user?.role}</p>
                 </div>
@@ -101,9 +99,7 @@ export function Sidebar() {
                 className="flex h-10 w-full items-center gap-2 rounded-lg px-3 text-sm text-brand-muted transition-colors hover:bg-brand-subtle hover:text-brand-light"
               >
                 <LogOut className="h-4 w-4 shrink-0" />
-                <span className="max-w-0 overflow-hidden whitespace-nowrap opacity-0 transition-all duration-300 group-hover:max-w-[100px] group-hover:opacity-100">
-                  Log out
-                </span>
+                <span className="whitespace-nowrap">Log out</span>
               </button>
             </div>
           ) : (

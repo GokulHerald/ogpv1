@@ -5,6 +5,9 @@ const SALT_ROUNDS = 12;
 
 const UserSchema = new mongoose.Schema(
   {
+    firstName: { type: String, required: false, trim: true, maxLength: 50, default: '' },
+    lastName: { type: String, required: false, trim: true, maxLength: 50, default: '' },
+    email: { type: String, required: false, unique: true, sparse: true, trim: true, lowercase: true },
     phoneNumber: { type: String, required: true, unique: true },
     password: { type: String, required: false },
 
@@ -28,6 +31,7 @@ const UserSchema = new mongoose.Schema(
     },
 
     isVerified: { type: Boolean, default: false },
+    emailVerified: { type: Boolean, default: false },
 
     // Even though we enable `timestamps`, this explicit field is required by the spec.
     createdAt: { type: Date, default: Date.now },

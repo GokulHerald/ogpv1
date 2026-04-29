@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -13,6 +13,9 @@ import { LoadingSpinner } from '../components/ui/LoadingSpinner.jsx';
 import { Trophy, Gamepad2, Crown } from 'lucide-react';
 
 const schema = z.object({
+  firstName: z.string().min(1, 'First name required').max(50),
+  lastName: z.string().min(1, 'Last name required').max(50),
+  email: z.string().email('Valid email required'),
   phoneNumber: z.string().min(1, 'Phone required'),
   username: z
     .string()
@@ -21,15 +24,19 @@ const schema = z.object({
     .regex(/^[a-zA-Z0-9_]+$/, 'Letters, numbers, underscores only'),
   password: z.string().min(8, 'At least 8 characters'),
   role: z.enum(['player', 'organizer']),
+  otp: z.string().min(4, 'OTP required').max(10),
 });
 
-const steps = ['Details', 'Role'];
+const steps = ['Details', 'Email OTP', 'Role'];
 
 export function RegisterPage() {
   const navigate = useNavigate();
   const { loginWithResponse } = useAuth();
   const [step, setStep] = useState(0);
   const [submitting, setSubmitting] = useState(false);
+  const [otpSending, setOtpSending] = useState(false);
+  const [otpVerifying, setOtpVerifying] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const {
     register,
@@ -40,28 +47,65 @@ export function RegisterPage() {
     formState: { errors },
   } = useForm({
     resolver: zodResolver(schema),
-    defaultValues: { role: 'player' },
+    defaultValues: { role: 'player', otp: '' },
   });
 
+  const email = watch('email');
   const role = watch('role');
 
-  const nextFromStep0 = async () => {
-    const ok = await trigger(['phoneNumber', 'username', 'password']);
-    if (ok) setStep(1);
+  const sendEmailOtp = async () => {
+    const ok = await trigger(['firstName', 'lastName', 'email', 'phoneNumber', 'password', 'role', 'username']);
+    if (!ok) return;
+
+    try {
+      setOtpSending(true);
+      await authApi.startEmailRegistration({
+        firstName: watch('firstName'),
+        lastName: watch('lastName'),
+        email: String(watch('email') || '').trim(),
+        phoneNumber: String(watch('phoneNumber') || '').trim(),
+        username: String(watch('username') || '').trim(),
+        password: watch('password'),
+        role: watch('role'),
+      });
+      toast.success('OTP sent to email');
+      setStep(1);
+    } catch (e) {
+      toast.error(e.response?.data?.message || 'Failed to send OTP email');
+    } finally {
+      setOtpSending(false);
+    }
   };
 
-  const onSubmit = async (data) => {
-    setSubmitting(true);
+  const verifyEmailOtp = async () => {
+    const ok = await trigger(['otp']);
+    if (!ok) return;
     try {
-      const res = await authApi.completeRegistration(data);
+      setOtpVerifying(true);
+      const res = await authApi.verifyEmailRegistration({
+        email: String(email || '').trim(),
+        otp: String(watch('otp') || '').trim(),
+      });
       loginWithResponse(res);
-      toast.success('Account ready');
+      toast.success('Account verified');
       navigate('/tournaments', { replace: true });
     } catch (e) {
-      toast.error(e.response?.data?.message || 'Registration failed');
+      toast.error(e.response?.data?.message || e.message || 'Email OTP verification failed');
     } finally {
-      setSubmitting(false);
+      setOtpVerifying(false);
     }
+  };
+
+  const nextFromStep1 = async () => {
+    const ok = await trigger(['username', 'password']);
+    if (ok) setStep(2);
+  };
+
+  const onSubmit = async () => {
+    // Final submit is OTP verification now. Keep form submit for enter-key support.
+    if (step === 0) return sendEmailOtp();
+    if (step === 1) return verifyEmailOtp();
+    return null;
   };
 
   return (
@@ -117,15 +161,26 @@ export function RegisterPage() {
           <form onSubmit={handleSubmit(onSubmit)} className="mt-8 space-y-5">
             {step === 0 ? (
               <>
+                <Input label="First name" {...register('firstName')} error={errors.firstName?.message} />
+                <Input label="Last name" {...register('lastName')} error={errors.lastName?.message} />
+                <Input label="Email" {...register('email')} error={errors.email?.message} />
                 <Input label="Phone number" {...register('phoneNumber')} error={errors.phoneNumber?.message} />
                 <Input label="Username" {...register('username')} error={errors.username?.message} />
-                <Input label="Password" type="password" {...register('password')} error={errors.password?.message} />
-                <Button type="button" variant="primary" className="w-full" onClick={nextFromStep0}>
-                  Continue
-                </Button>
-              </>
-            ) : (
-              <>
+                <div className="space-y-2">
+                  <Input
+                    label="Password"
+                    type={showPassword ? 'text' : 'password'}
+                    {...register('password')}
+                    error={errors.password?.message}
+                  />
+                  <button
+                    type="button"
+                    className="text-xs font-semibold text-brand-orange hover:underline"
+                    onClick={() => setShowPassword((v) => !v)}
+                  >
+                    {showPassword ? 'Hide password' : 'Show password'}
+                  </button>
+                </div>
                 <p className="text-sm font-medium text-brand-light">Choose your role</p>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <button
@@ -155,14 +210,51 @@ export function RegisterPage() {
                 </div>
                 {errors.role ? <p className="text-sm text-red-400">{errors.role.message}</p> : null}
                 <input type="hidden" {...register('role')} />
+                <Button
+                  type="button"
+                  variant="primary"
+                  className="w-full"
+                  disabled={otpSending || submitting}
+                  onClick={sendEmailOtp}
+                >
+                  {otpSending ? <LoadingSpinner className="mx-auto !border-t-white" size="sm" /> : 'Send email OTP'}
+                </Button>
+              </>
+            ) : step === 1 ? (
+              <>
+                <p className="text-sm text-brand-muted">
+                  We sent a verification code to <span className="text-brand-light">{String(email || '').trim()}</span>.
+                </p>
+                <Input label="OTP code" {...register('otp')} error={errors.otp?.message} />
                 <div className="flex gap-3">
                   <Button type="button" variant="secondary" className="flex-1" onClick={() => setStep(0)}>
                     Back
                   </Button>
-                  <Button type="submit" variant="primary" className="flex-1" disabled={submitting}>
-                    {submitting ? <LoadingSpinner className="mx-auto !border-t-white" size="sm" /> : 'Create account'}
+                  <Button
+                    type="button"
+                    variant="primary"
+                    className="flex-1"
+                    disabled={otpVerifying}
+                    onClick={verifyEmailOtp}
+                  >
+                    {otpVerifying ? <LoadingSpinner className="mx-auto !border-t-white" size="sm" /> : 'Verify OTP'}
                   </Button>
                 </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="w-full"
+                  disabled={otpSending}
+                  onClick={sendEmailOtp}
+                >
+                  {otpSending ? 'Sending…' : 'Resend code'}
+                </Button>
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-brand-muted">
+                  Account verification is now done via email OTP. You can close this page.
+                </p>
               </>
             )}
           </form>

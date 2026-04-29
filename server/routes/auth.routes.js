@@ -7,6 +7,8 @@ const {
   handleUploadError,
 } = require('../middleware/upload.middleware');
 const {
+  registerStart,
+  registerVerify,
   verifyOTP,
   completeRegistration,
   login,
@@ -23,6 +25,27 @@ const validate = (req, res, next) => {
   }
   return next();
 };
+
+router.post(
+  '/register/start',
+  [
+    body('firstName').optional().isString().isLength({ max: 50 }),
+    body('lastName').optional().isString().isLength({ max: 50 }),
+    body('email').isEmail().normalizeEmail(),
+    body('phoneNumber').notEmpty(),
+    body('password').isLength({ min: 8 }),
+    body('role').isIn(['player', 'organizer']),
+  ],
+  validate,
+  registerStart
+);
+
+router.post(
+  '/register/verify',
+  [body('email').isEmail().normalizeEmail(), body('otp').isLength({ min: 4, max: 10 })],
+  validate,
+  registerVerify
+);
 
 router.post(
   '/verify-otp',
@@ -45,7 +68,7 @@ router.post(
 
 router.post(
   '/login',
-  [body('phoneNumber').notEmpty(), body('password').notEmpty()],
+  [body('password').notEmpty()],
   validate,
   login
 );

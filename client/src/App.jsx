@@ -10,6 +10,10 @@ import { AdminDashboardPage } from './pages/AdminDashboardPage.jsx';
 import { ProfilePage } from './pages/ProfilePage.jsx';
 import { NotFoundPage } from './pages/NotFoundPage.jsx';
 import { LeaderboardPage } from './pages/LeaderboardPage.jsx';
+import { PrivacyPolicyPage } from './pages/PrivacyPolicyPage.jsx';
+import { TermsOfServicePage } from './pages/TermsOfServicePage.jsx';
+import { PaymentSuccessPage } from './pages/PaymentSuccessPage.jsx';
+import { PaymentFailedPage } from './pages/PaymentFailedPage.jsx';
 
 export default function App() {
   return (
@@ -18,6 +22,10 @@ export default function App() {
         <Route path="/" element={<HomePage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
+        <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
+        <Route path="/terms" element={<TermsOfServicePage />} />
+        <Route path="/payment/success" element={<PaymentSuccessPage />} />
+        <Route path="/payment/failed" element={<PaymentFailedPage />} />
         <Route path="/tournaments" element={<TournamentsPage />} />
         <Route path="/tournaments/:id" element={<TournamentDetailPage />} />
         <Route path="/leaderboard" element={<LeaderboardPage />} />

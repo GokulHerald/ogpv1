@@ -25,7 +25,7 @@ export function Layout() {
   return (
     <div className="min-h-screen bg-brand-bg">
       <Sidebar />
-      <div className="min-h-screen pb-20 md:ml-[72px] md:pb-0">
+      <div className="min-h-screen pb-20 md:ml-[220px] md:pb-0">
         <Outlet />
       </div>
       <Toaster

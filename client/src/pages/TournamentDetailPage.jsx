@@ -9,6 +9,8 @@ import { StreamSubmitForm } from '../components/tournament/StreamSubmitForm.jsx'
 import { LoadingSpinner } from '../components/ui/LoadingSpinner.jsx';
 import { Badge } from '../components/ui/Badge.jsx';
 import { Button } from '../components/ui/Button.jsx';
+import { Modal } from '../components/ui/Modal.jsx';
+import * as paymentApi from '../api/payment.api.js';
 import toast from 'react-hot-toast';
 
 const statusVariant = {
@@ -26,9 +28,13 @@ export function TournamentDetailPage() {
   const [leaderboard, setLeaderboard] = useState(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
+  const [adminStatsLoading, setAdminStatsLoading] = useState(false);
+  const [adminStats, setAdminStats] = useState(null);
   const [squadName, setSquadName] = useState('');
   const [memberIdInputs, setMemberIdInputs] = useState(['', '', '']);
   const [brWinnerTeamId, setBrWinnerTeamId] = useState('');
+  const [payModalOpen, setPayModalOpen] = useState(false);
+  const [pendingTeamId, setPendingTeamId] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -152,7 +158,70 @@ export function TournamentDetailPage() {
     brLobbyMatch &&
     brLobbyMatch.status !== 'completed';
 
+  const openPayModal = (teamId = null) => {
+    setPendingTeamId(teamId);
+    setPayModalOpen(true);
+  };
+
+  const submitEsewaForm = (actionUrl, payload) => {
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = actionUrl;
+    form.style.display = 'none';
+
+    Object.entries(payload || {}).forEach(([k, v]) => {
+      const input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = k;
+      input.value = String(v ?? '');
+      form.appendChild(input);
+    });
+
+    document.body.appendChild(form);
+    form.submit();
+    form.remove();
+  };
+
+  const handlePay = async (gateway) => {
+    if (!tournament) return;
+    setActionLoading(true);
+    try {
+      if (gateway === 'khalti') {
+        const { data } = await paymentApi.initiateKhaltiPayment({
+          tournamentId: id,
+          teamId: pendingTeamId || undefined,
+        });
+        if (!data?.payment_url) throw new Error('Missing payment URL');
+        window.location.href = data.payment_url;
+        return;
+      }
+
+      if (gateway === 'esewa') {
+        const { data } = await paymentApi.initiateEsewaPayment({
+          tournamentId: id,
+          teamId: pendingTeamId || undefined,
+        });
+        if (!data?.esewa_payment_url) throw new Error('Missing eSewa URL');
+        const { esewa_payment_url, ...rest } = data;
+        submitEsewaForm(esewa_payment_url, rest);
+        return;
+      }
+
+      toast.error('Unknown gateway');
+    } catch (e) {
+      toast.error(e.response?.data?.message || e.message || 'Payment initiation failed');
+    } finally {
+      setActionLoading(false);
+      setPayModalOpen(false);
+    }
+  };
+
   const handleRegister = async () => {
+    if (tournament?.entryFee > 0) {
+      openPayModal(null);
+      return;
+    }
+
     setActionLoading(true);
     try {
       await tournamentApi.registerForTournament(id);
@@ -163,6 +232,18 @@ export function TournamentDetailPage() {
       toast.error(e.response?.data?.message || 'Register failed');
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  const loadAdminStats = async () => {
+    try {
+      setAdminStatsLoading(true);
+      const { data } = await tournamentApi.getAdminPlayerStats(id);
+      setAdminStats(data);
+    } catch (e) {
+      toast.error(e.response?.data?.message || 'Failed to load admin stats');
+    } finally {
+      setAdminStatsLoading(false);
     }
   };
 
@@ -185,10 +266,10 @@ export function TournamentDetailPage() {
       });
       if (res.data?.requiresPayment) {
         const tid = res.data.team?._id;
-        toast.success(
-          `Squad created. Pay ₹${res.data.entryFee ?? tournament.entryFee} to confirm. Team ID: ${tid || '—'} (use with your payment flow).`,
-          { duration: 8000 }
-        );
+        toast.success(`Squad created. Pay ₹${res.data.entryFee ?? tournament.entryFee} to confirm.`, {
+          duration: 6000,
+        });
+        openPayModal(tid || null);
       } else {
         toast.success(res.data?.message || 'Squad registered');
       }
@@ -299,7 +380,7 @@ export function TournamentDetailPage() {
           !isRegistered &&
           !isSquadTournament ? (
             <Button variant="primary" disabled={actionLoading} onClick={handleRegister}>
-              Register
+              {tournament.entryFee > 0 ? `Pay ₹${tournament.entryFee} & register` : 'Register'}
             </Button>
           ) : null}
           {isOwner && tournament.status === 'registration' ? (
@@ -309,6 +390,28 @@ export function TournamentDetailPage() {
           ) : null}
         </div>
       </div>
+
+      <Modal
+        open={payModalOpen}
+        onClose={() => (!actionLoading ? setPayModalOpen(false) : null)}
+        title="Choose payment gateway"
+      >
+        <p className="text-sm text-brand-muted">
+          Entry fee: <span className="text-brand-light">₹{tournament.entryFee}</span>. You’ll be registered only after we
+          verify the payment.
+        </p>
+        <div className="mt-5 grid gap-3 sm:grid-cols-2">
+          <Button variant="primary" disabled={actionLoading} onClick={() => handlePay('khalti')}>
+            Pay with Khalti
+          </Button>
+          <Button variant="secondary" disabled={actionLoading} onClick={() => handlePay('esewa')}>
+            Pay with eSewa
+          </Button>
+        </div>
+        <p className="mt-4 text-xs text-brand-muted">
+          After payment, you’ll be redirected back to the site. If you close the gateway window, just try again.
+        </p>
+      </Modal>
 
       {isAuthenticated &&
       !isOrganizer &&
@@ -392,6 +495,93 @@ export function TournamentDetailPage() {
           <Button variant="primary" disabled={actionLoading} onClick={handleDeclareBrWinner}>
             Confirm winning squad
           </Button>
+        </div>
+      ) : null}
+
+      {isOrganizer && isOwner ? (
+        <div className="card-surface mt-8 space-y-4 border border-brand-border p-5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="font-display text-sm font-bold uppercase tracking-wide text-brand-light">
+              Admin player statistics
+            </h3>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={adminStatsLoading}
+              onClick={loadAdminStats}
+              className="!px-3 !py-2 text-xs"
+            >
+              {adminStatsLoading ? 'Loading…' : adminStats ? 'Refresh stats' : 'Load stats'}
+            </Button>
+          </div>
+
+          {!adminStats ? (
+            <p className="text-sm text-brand-muted">
+              View per-player totals and per-match breakdown for this tournament (organizer-only).
+            </p>
+          ) : (
+            <div className="space-y-4">
+              <p className="text-xs uppercase tracking-wider text-brand-muted">
+                Players {adminStats.players?.length ?? 0} · Matches {adminStats.matchesCount ?? 0}
+              </p>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[980px] text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-brand-border text-xs uppercase tracking-wider text-brand-muted">
+                      <th className="pb-2 pr-4">Player</th>
+                      <th className="pb-2 pr-4">Points</th>
+                      <th className="pb-2 pr-4">Score</th>
+                      <th className="pb-2 pr-4">W</th>
+                      <th className="pb-2 pr-4">L</th>
+                      <th className="pb-2 pr-4">Kills</th>
+                      <th className="pb-2 pr-4">Avg placement</th>
+                      <th className="pb-2">Per-match</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(adminStats.players || []).map((p) => (
+                      <tr key={p.playerId} className="border-b border-brand-border/60 align-top">
+                        <td className="py-2 pr-4 text-brand-light">{p.player?.username || p.playerId}</td>
+                        <td className="py-2 pr-4">{p.totals?.totalPoints ?? 0}</td>
+                        <td className="py-2 pr-4">{p.totals?.totalScore ?? 0}</td>
+                        <td className="py-2 pr-4">{p.totals?.wins ?? 0}</td>
+                        <td className="py-2 pr-4">{p.totals?.losses ?? 0}</td>
+                        <td className="py-2 pr-4">{p.totals?.kills ?? 0}</td>
+                        <td className="py-2 pr-4">{p.totals?.avgPlacement ?? '—'}</td>
+                        <td className="py-2">
+                          <details className="rounded-lg border border-brand-border bg-brand-subtle/20 p-3">
+                            <summary className="cursor-pointer text-xs font-semibold text-brand-orange">
+                              View ({p.perMatch?.length ?? 0})
+                            </summary>
+                            <div className="mt-3 space-y-2 text-xs text-brand-muted">
+                              {(p.perMatch || []).map((m) => (
+                                <div key={m.matchId} className="rounded-md border border-brand-border/60 p-2">
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <span className="text-brand-light">
+                                      {m.kind === 'br_lobby'
+                                        ? 'BR lobby'
+                                        : `Round ${m.round} · Match ${m.matchNumber}`}
+                                    </span>
+                                    <span>{m.status}</span>
+                                  </div>
+                                  <div className="mt-1 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                                    <span>Kills: {m.kills ?? 0}</span>
+                                    <span>Placement: {m.placement ?? '—'}</span>
+                                    <span>Score: {m.score ?? 0}</span>
+                                    <span>Result: {m.isWinner == null ? '—' : m.isWinner ? 'W' : 'L'}</span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </details>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       ) : null}
 
