@@ -5,6 +5,8 @@ const Bracket = require('../models/Bracket');
 const Match = require('../models/Match');
 const Leaderboard = require('../models/Leaderboard');
 const { generateBracket } = require('../utils/bracket.utils');
+const crypto = require('crypto');
+const mongoose = require('mongoose');
 
 async function addSquadPlayersToLeaderboard(team, tournamentId) {
   const leaderboard = await Leaderboard.findOne({ tournament: tournamentId });
@@ -29,6 +31,20 @@ async function getUsedPlayerIdsForTournament(tournamentId) {
     (t.members || []).forEach((m) => set.add(String(m)));
   }
   return set;
+}
+
+function makeInviteCode() {
+  return crypto.randomBytes(4).toString('hex').toUpperCase(); // 8 chars
+}
+
+async function generateUniqueInviteCode() {
+  for (let i = 0; i < 10; i += 1) {
+    const code = makeInviteCode();
+    // eslint-disable-next-line no-await-in-loop
+    const exists = await Team.findOne({ inviteCode: code }).select('_id');
+    if (!exists) return code;
+  }
+  return `OGP${Date.now().toString(36).toUpperCase()}`;
 }
 
 async function createTournament(req, res) {
@@ -151,6 +167,91 @@ async function getTournamentById(req, res) {
   }
 }
 
+async function getMySquadForTournament(req, res) {
+  try {
+    const { id } = req.params;
+    const tournament = await Tournament.findById(id);
+    if (!tournament) return res.status(404).json({ message: 'Tournament not found' });
+    if (tournament.format !== 'battle_royale_squad') {
+      return res.status(400).json({ message: 'This tournament does not use squad registration' });
+    }
+
+    const team = await Team.findOne({
+      tournament: tournament._id,
+      $or: [{ captain: req.user._id }, { members: req.user._id }],
+    })
+      .populate('captain', 'username profilePicture')
+      .populate('members', 'username profilePicture');
+
+    if (!team) return res.status(404).json({ message: 'No squad found for this tournament' });
+
+    const squadSize = tournament.squadSize || 4;
+    const maxMembers = squadSize - 1;
+    const isFullTeam = (team.members || []).length === maxMembers;
+
+    return res.status(200).json({
+      team,
+      inviteCode: team.inviteCode,
+      teamSize: squadSize,
+      membersNeeded: Math.max(0, maxMembers - (team.members?.length || 0)),
+      isFullTeam,
+      requiresPayment: tournament.entryFee > 0 && isFullTeam,
+      entryFee: tournament.entryFee,
+      hasPaid: Boolean(team.entryPayment),
+      isRegisteredInTournament:
+        (tournament.registeredTeams || []).some((tid) => String(tid) === String(team._id)) ?? false,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message || 'Failed to load your squad' });
+  }
+}
+
+async function getMyPlayerPortal(req, res) {
+  try {
+    const userId = req.user._id;
+
+    const soloTournaments = await Tournament.find({
+      registeredPlayers: userId,
+    })
+      .select('name game status startDate entryFee format')
+      .sort({ startDate: -1 });
+
+    const teams = await Team.find({
+      $or: [{ captain: userId }, { members: userId }],
+    })
+      .populate('tournament', 'name game status startDate entryFee format squadSize')
+      .populate('captain', 'username profilePicture')
+      .populate('members', 'username profilePicture')
+      .sort({ createdAt: -1 });
+
+    const squads = teams
+      .filter((t) => t.tournament)
+      .map((t) => {
+        const tournament = t.tournament;
+        const squadSize = tournament.squadSize || 4;
+        const maxMembers = squadSize - 1;
+        const isFullTeam = (t.members || []).length === maxMembers;
+        const isRegisteredInTournament =
+          (tournament.registeredTeams || []).some((tid) => String(tid) === String(t._id)) ?? false;
+        return {
+          team: t,
+          tournament,
+          inviteCode: t.inviteCode,
+          teamSize: squadSize,
+          membersNeeded: Math.max(0, maxMembers - (t.members?.length || 0)),
+          isFullTeam,
+          hasPaid: Boolean(t.entryPayment),
+          isRegisteredInTournament,
+          requiresPayment: tournament.entryFee > 0 && isFullTeam && !Boolean(t.entryPayment),
+        };
+      });
+
+    return res.status(200).json({ soloTournaments, squads });
+  } catch (error) {
+    return res.status(500).json({ message: error.message || 'Failed to load player portal' });
+  }
+}
+
 async function registerSquad(req, res) {
   try {
     const { id } = req.params;
@@ -179,17 +280,16 @@ async function registerSquad(req, res) {
 
     const squadSize = tournament.squadSize || 4;
     const maxMembers = squadSize - 1;
-    if (!Array.isArray(memberIds) || memberIds.length !== maxMembers) {
-      return res.status(400).json({
-        message: `Squad must have exactly ${squadSize} players (you + ${maxMembers} members).`,
-      });
+    const safeMemberIds = Array.isArray(memberIds) ? memberIds : [];
+    if (safeMemberIds.length > maxMembers) {
+      return res.status(400).json({ message: `Squad can have at most ${maxMembers} teammates` });
     }
 
-    const uniq = new Set(memberIds.map(String));
-    if (uniq.size !== memberIds.length) {
+    const uniq = new Set(safeMemberIds.map(String));
+    if (uniq.size !== safeMemberIds.length) {
       return res.status(400).json({ message: 'Duplicate member IDs' });
     }
-    if (memberIds.some((mid) => String(mid) === String(req.user._id))) {
+    if (safeMemberIds.some((mid) => String(mid) === String(req.user._id))) {
       return res.status(400).json({ message: 'Captain cannot be listed in memberIds' });
     }
 
@@ -201,16 +301,8 @@ async function registerSquad(req, res) {
       return res.status(400).json({ message: 'You already have a squad for this tournament' });
     }
 
-    const memberUsers = await User.find({ _id: { $in: memberIds } });
-    if (memberUsers.length !== memberIds.length) {
-      return res.status(400).json({ message: 'One or more members not found' });
-    }
-    if (memberUsers.some((u) => u.role === 'organizer')) {
-      return res.status(400).json({ message: 'Organizers cannot join as squad members' });
-    }
-
     const used = await getUsedPlayerIdsForTournament(tournament._id);
-    const squadPlayerIds = [String(req.user._id), ...memberIds.map(String)];
+    const squadPlayerIds = [String(req.user._id), ...safeMemberIds.map(String)];
     for (const pid of squadPlayerIds) {
       if (used.has(pid)) {
         return res.status(400).json({
@@ -219,37 +311,178 @@ async function registerSquad(req, res) {
       }
     }
 
+    // If member IDs were provided (legacy flow), validate them.
+    if (safeMemberIds.length) {
+      const invalid = safeMemberIds.some((mid) => !mongoose.Types.ObjectId.isValid(String(mid)));
+      if (invalid) {
+        return res.status(400).json({ message: 'One or more member IDs are invalid' });
+      }
+      const memberUsers = await User.find({ _id: { $in: safeMemberIds } });
+      if (memberUsers.length !== safeMemberIds.length) {
+        return res.status(400).json({ message: 'One or more members not found' });
+      }
+      if (memberUsers.some((u) => u.role === 'organizer')) {
+        return res.status(400).json({ message: 'Organizers cannot join as squad members' });
+      }
+    }
+
+    const inviteCode = await generateUniqueInviteCode();
+
     const team = await Team.create({
       tournament: tournament._id,
       name: String(name).trim(),
       captain: req.user._id,
-      members: memberIds,
+      members: safeMemberIds,
+      inviteCode,
+      inviteCodeCreatedAt: new Date(),
     });
+
+    const isFullTeam = (team.members || []).length === maxMembers;
 
     if (tournament.entryFee > 0) {
       return res.status(201).json({
         team,
+        inviteCode,
+        teamSize: squadSize,
+        membersNeeded: Math.max(0, maxMembers - (team.members?.length || 0)),
+        isFullTeam,
         requiresPayment: true,
         entryFee: tournament.entryFee,
-        message: 'Complete payment to confirm squad registration',
+        message: isFullTeam
+          ? 'Squad created. Complete payment to confirm registration.'
+          : 'Squad created. Invite teammates to fill the squad, then complete payment to register.',
       });
     }
 
-    tournament.registeredTeams.push(team._id);
-    await tournament.save();
-    await addSquadPlayersToLeaderboard(team, tournament._id);
+    if (isFullTeam) {
+      tournament.registeredTeams.push(team._id);
+      await tournament.save();
+      await addSquadPlayersToLeaderboard(team, tournament._id);
+    }
 
     const populated = await Team.findById(team._id)
       .populate('captain', 'username profilePicture')
       .populate('members', 'username profilePicture');
 
     return res.status(201).json({
-      message: 'Squad registered',
+      message: isFullTeam ? 'Squad registered' : 'Squad created. Share invite code to add teammates.',
       team: populated,
+      inviteCode,
+      teamSize: squadSize,
+      membersNeeded: Math.max(0, maxMembers - (team.members?.length || 0)),
+      isFullTeam,
       tournament,
     });
   } catch (error) {
     return res.status(500).json({ message: error.message || 'Failed to register squad' });
+  }
+}
+
+async function joinSquadByInviteCode(req, res) {
+  try {
+    const { id } = req.params;
+    const inviteCode = String(req.body.inviteCode || '').trim().toUpperCase();
+
+    const tournament = await Tournament.findById(id);
+    if (!tournament) return res.status(404).json({ message: 'Tournament not found' });
+    if (tournament.format !== 'battle_royale_squad') {
+      return res.status(400).json({ message: 'This tournament does not use squad registration' });
+    }
+    if (tournament.status !== 'registration') {
+      return res.status(400).json({ message: 'Registration is closed for this tournament' });
+    }
+    if (tournament.isFull) return res.status(400).json({ message: 'Tournament is full' });
+
+    const squadSize = tournament.squadSize || 4;
+    const maxMembers = squadSize - 1;
+
+    const team = await Team.findOne({ tournament: tournament._id, inviteCode });
+    if (!team) return res.status(404).json({ message: 'Invalid invite code' });
+
+    if (String(team.captain) === String(req.user._id)) {
+      return res.status(400).json({ message: 'Captain is already in this squad' });
+    }
+    const alreadyMember = (team.members || []).some((m) => String(m) === String(req.user._id));
+    if (alreadyMember) return res.status(400).json({ message: 'You are already in this squad' });
+
+    if ((team.members || []).length >= maxMembers) {
+      return res.status(400).json({ message: 'Squad is already full' });
+    }
+
+    const used = await getUsedPlayerIdsForTournament(tournament._id);
+    if (used.has(String(req.user._id))) {
+      return res.status(400).json({ message: 'You are already registered in another squad' });
+    }
+
+    team.members = [...(team.members || []), req.user._id];
+    await team.save();
+
+    const isFullTeam = (team.members || []).length === maxMembers;
+
+    if (isFullTeam && tournament.entryFee === 0) {
+      const already = tournament.registeredTeams?.some((tid) => String(tid) === String(team._id));
+      if (!already) tournament.registeredTeams.push(team._id);
+      await tournament.save();
+      await addSquadPlayersToLeaderboard(team, tournament._id);
+    }
+
+    const populated = await Team.findById(team._id)
+      .populate('captain', 'username profilePicture')
+      .populate('members', 'username profilePicture');
+
+    return res.status(200).json({
+      message: isFullTeam
+        ? tournament.entryFee > 0
+          ? 'Joined squad. Captain can now pay to register.'
+          : 'Joined squad. Squad registered.'
+        : 'Joined squad. Waiting for more teammates.',
+      team: populated,
+      inviteCode: team.inviteCode,
+      teamSize: squadSize,
+      membersNeeded: Math.max(0, maxMembers - (team.members?.length || 0)),
+      isFullTeam,
+      requiresPayment: tournament.entryFee > 0 && isFullTeam,
+      entryFee: tournament.entryFee,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message || 'Failed to join squad' });
+  }
+}
+
+async function getSquadRoster(req, res) {
+  try {
+    const { id } = req.params;
+    const inviteCode = String(req.query.inviteCode || '').trim().toUpperCase();
+    if (!inviteCode) {
+      return res.status(400).json({ message: 'inviteCode query param is required' });
+    }
+
+    const tournament = await Tournament.findById(id);
+    if (!tournament) return res.status(404).json({ message: 'Tournament not found' });
+    if (tournament.format !== 'battle_royale_squad') {
+      return res.status(400).json({ message: 'This tournament does not use squad registration' });
+    }
+
+    const team = await Team.findOne({ tournament: tournament._id, inviteCode })
+      .populate('captain', 'username profilePicture')
+      .populate('members', 'username profilePicture');
+    if (!team) return res.status(404).json({ message: 'Invalid invite code' });
+
+    const squadSize = tournament.squadSize || 4;
+    const maxMembers = squadSize - 1;
+    const isFullTeam = (team.members || []).length === maxMembers;
+
+    return res.status(200).json({
+      team,
+      inviteCode: team.inviteCode,
+      teamSize: squadSize,
+      membersNeeded: Math.max(0, maxMembers - (team.members?.length || 0)),
+      isFullTeam,
+      requiresPayment: tournament.entryFee > 0 && isFullTeam,
+      entryFee: tournament.entryFee,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message || 'Failed to load squad roster' });
   }
 }
 
@@ -761,9 +994,13 @@ async function getAdminPlayerStats(req, res) {
 module.exports = {
   createTournament,
   getAllTournaments,
+  getMyPlayerPortal,
   getTournamentById,
   registerForTournament,
   registerSquad,
+  joinSquadByInviteCode,
+  getSquadRoster,
+  getMySquadForTournament,
   startTournament,
   setBrWinner,
   getAdminPlayerStats,

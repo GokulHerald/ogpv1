@@ -8,6 +8,8 @@ const {
   getTournamentById,
   registerForTournament,
   registerSquad,
+  joinSquadByInviteCode,
+  getSquadRoster,
   startTournament,
   setBrWinner,
 } = require('../controllers/tournament.controller');
@@ -45,6 +47,15 @@ router.post(
 
 router.post('/:id/register', protect, restrictTo('player'), registerForTournament);
 router.post('/:id/squads', protect, restrictTo('player'), registerSquad);
+router.get('/:id/squads/roster', protect, restrictTo('player'), getSquadRoster);
+router.post(
+  '/:id/squads/join',
+  protect,
+  restrictTo('player'),
+  [body('inviteCode').notEmpty().isLength({ min: 4, max: 32 })],
+  validate,
+  joinSquadByInviteCode
+);
 router.post('/:id/start', protect, restrictTo('organizer'), startTournament);
 router.post('/:id/br-winner', protect, restrictTo('organizer'), setBrWinner);
 

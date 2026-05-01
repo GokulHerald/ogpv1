@@ -14,6 +14,7 @@ import { PrivacyPolicyPage } from './pages/PrivacyPolicyPage.jsx';
 import { TermsOfServicePage } from './pages/TermsOfServicePage.jsx';
 import { PaymentSuccessPage } from './pages/PaymentSuccessPage.jsx';
 import { PaymentFailedPage } from './pages/PaymentFailedPage.jsx';
+import { MyTournamentsPage } from './pages/MyTournamentsPage.jsx';
 
 export default function App() {
   return (
@@ -28,6 +29,14 @@ export default function App() {
         <Route path="/payment/failed" element={<PaymentFailedPage />} />
         <Route path="/tournaments" element={<TournamentsPage />} />
         <Route path="/tournaments/:id" element={<TournamentDetailPage />} />
+        <Route
+          path="/my-tournaments"
+          element={
+            <ProtectedRoute roles={['player']}>
+              <MyTournamentsPage />
+            </ProtectedRoute>
+          }
+        />
         <Route path="/leaderboard" element={<LeaderboardPage />} />
         <Route path="/admin" element={<Navigate to="/dashboard" replace />} />
         <Route

@@ -139,6 +139,12 @@ async function initiateEsewaPayment(req, res) {
       if (String(team.captain) !== String(req.user._id)) {
         return res.status(403).json({ message: 'Only the squad captain can pay' });
       }
+      const requiredMembers = (tournament.squadSize || 4) - 1;
+      if ((team.members || []).length !== requiredMembers) {
+        return res.status(400).json({
+          message: `Squad must have ${tournament.squadSize || 4} players before payment`,
+        });
+      }
       const teamInList = tournament.registeredTeams?.some((id) => String(id) === String(teamId));
       if (teamInList) {
         return res.status(400).json({ message: 'Squad is already registered' });
@@ -209,7 +215,7 @@ async function esewaSuccess(req, res) {
     }
 
     const decoded = JSON.parse(Buffer.from(String(data), 'base64').toString());
-    const { transaction_uuid, total_amount, transaction_code } = decoded || {};
+    const { transaction_uuid, transaction_code } = decoded || {};
 
     if (!transaction_uuid) {
       return res.redirect(`${clientUrl}/payment/failed`);
@@ -226,7 +232,8 @@ async function esewaSuccess(req, res) {
       const verifyRes = await axios.get(statusUrl, {
         params: {
           product_code: merchantId,
-          total_amount,
+          // Use our stored amount to avoid sandbox formatting mismatches
+          total_amount: payment.amount,
           transaction_uuid,
         },
       });
@@ -326,6 +333,12 @@ async function initiateKhaltiPayment(req, res) {
       }
       if (String(team.captain) !== String(req.user._id)) {
         return res.status(403).json({ message: 'Only the squad captain can pay' });
+      }
+      const requiredMembers = (tournament.squadSize || 4) - 1;
+      if ((team.members || []).length !== requiredMembers) {
+        return res.status(400).json({
+          message: `Squad must have ${tournament.squadSize || 4} players before payment`,
+        });
       }
       const teamInList = tournament.registeredTeams?.some((id) => String(id) === String(teamId));
       if (teamInList) {

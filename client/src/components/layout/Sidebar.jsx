@@ -6,6 +6,7 @@ import {
   BarChart2,
   User,
   Settings2,
+  ClipboardList,
   LogOut,
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth.js';
@@ -54,7 +55,7 @@ function MobileNavLink({ to, icon: Icon, label, end }) {
 }
 
 export function Sidebar() {
-  const { user, isAuthenticated, isOrganizer, logout } = useAuth();
+  const { user, isAuthenticated, isOrganizer, isPlayer, logout } = useAuth();
 
   return (
     <>
@@ -76,6 +77,9 @@ export function Sidebar() {
           {mainNav.map((item) => (
             <DesktopNavLink key={item.to} {...item} />
           ))}
+          {isPlayer ? (
+            <DesktopNavLink to="/my-tournaments" icon={ClipboardList} label="My tournaments" />
+          ) : null}
           {isOrganizer ? (
             <DesktopNavLink to="/dashboard" icon={Settings2} label="Dashboard" />
           ) : null}
@@ -117,6 +121,7 @@ export function Sidebar() {
         {mainNav.map((item) => (
           <MobileNavLink key={item.to} {...item} />
         ))}
+        {isPlayer ? <MobileNavLink to="/my-tournaments" icon={ClipboardList} label="Mine" /> : null}
         {isOrganizer ? <MobileNavLink to="/dashboard" icon={Settings2} label="Dash" /> : null}
       </nav>
     </>

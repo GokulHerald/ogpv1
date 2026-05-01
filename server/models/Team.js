@@ -9,6 +9,8 @@ const TeamSchema = new Schema(
     captain: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     members: [{ type: Schema.Types.ObjectId, ref: 'User' }],
     entryPayment: { type: Schema.Types.ObjectId, ref: 'Payment', default: null },
+    inviteCode: { type: String, unique: true, sparse: true, index: true, default: '' },
+    inviteCodeCreatedAt: { type: Date, default: null },
   },
   { timestamps: true }
 );

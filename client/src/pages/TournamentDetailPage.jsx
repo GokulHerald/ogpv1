@@ -31,7 +31,11 @@ export function TournamentDetailPage() {
   const [adminStatsLoading, setAdminStatsLoading] = useState(false);
   const [adminStats, setAdminStats] = useState(null);
   const [squadName, setSquadName] = useState('');
-  const [memberIdInputs, setMemberIdInputs] = useState(['', '', '']);
+  const [inviteCodeInput, setInviteCodeInput] = useState('');
+  const [createdInviteCode, setCreatedInviteCode] = useState('');
+  const [createdTeamId, setCreatedTeamId] = useState('');
+  const [squadRoster, setSquadRoster] = useState(null);
+  const [rosterLoading, setRosterLoading] = useState(false);
   const [brWinnerTeamId, setBrWinnerTeamId] = useState('');
   const [payModalOpen, setPayModalOpen] = useState(false);
   const [pendingTeamId, setPendingTeamId] = useState(null);
@@ -95,13 +99,43 @@ export function TournamentDetailPage() {
   const memberSlots = (tournament?.squadSize || 4) - 1;
 
   useEffect(() => {
-    setMemberIdInputs((prev) => {
-      const next = [...prev];
-      while (next.length < memberSlots) next.push('');
-      while (next.length > memberSlots) next.pop();
-      return next;
-    });
+    // Reset squad state when changing tournaments.
+    setInviteCodeInput('');
+    setCreatedInviteCode('');
+    setCreatedTeamId('');
+    setSquadRoster(null);
   }, [memberSlots, id]);
+
+  useEffect(() => {
+    async function bootstrapMySquad() {
+      if (!isAuthenticated || !isPlayer || !isSquadTournament) return;
+      try {
+        const res = await tournamentApi.getMySquadForTournament(id);
+        const code = res.data?.inviteCode;
+        const teamId = res.data?.team?._id;
+        if (code) setCreatedInviteCode(String(code));
+        if (teamId) setCreatedTeamId(String(teamId));
+        setSquadRoster(res.data);
+      } catch {
+        // No squad yet; ignore
+      }
+    }
+    bootstrapMySquad();
+  }, [id, isAuthenticated, isPlayer, isSquadTournament]);
+
+  const loadRoster = async (code) => {
+    const c = String(code || '').trim();
+    if (!c) return;
+    try {
+      setRosterLoading(true);
+      const res = await tournamentApi.getSquadRoster(id, c);
+      setSquadRoster(res.data);
+    } catch (e) {
+      toast.error(e.response?.data?.message || 'Failed to load squad roster');
+    } finally {
+      setRosterLoading(false);
+    }
+  };
 
   const isRegistered = useMemo(() => {
     if (!user?._id || !tournament) return false;
@@ -248,37 +282,52 @@ export function TournamentDetailPage() {
   };
 
   const handleRegisterSquad = async () => {
-    const memberIds = memberIdInputs.map((s) => s.trim()).filter(Boolean);
-    if (memberIds.length !== memberSlots) {
-      toast.error(`Enter exactly ${memberSlots} teammate user IDs (MongoDB ObjectIds).`);
-      return;
-    }
-    const uniq = new Set(memberIds);
-    if (uniq.size !== memberIds.length) {
-      toast.error('Duplicate member IDs');
-      return;
-    }
     setActionLoading(true);
     try {
       const res = await tournamentApi.registerSquad(id, {
         name: squadName.trim(),
-        memberIds,
       });
-      if (res.data?.requiresPayment) {
-        const tid = res.data.team?._id;
-        toast.success(`Squad created. Pay ₹${res.data.entryFee ?? tournament.entryFee} to confirm.`, {
-          duration: 6000,
-        });
+      const tid = res.data.team?._id;
+      const code = res.data.inviteCode;
+      if (tid) setCreatedTeamId(String(tid));
+      if (code) setCreatedInviteCode(String(code));
+      toast.success(res.data?.message || 'Squad created');
+      if (code) {
+        await loadRoster(code);
+      }
+
+      if (res.data?.requiresPayment && res.data?.isFullTeam) {
         openPayModal(tid || null);
-      } else {
-        toast.success(res.data?.message || 'Squad registered');
       }
       const { data } = await tournamentApi.getTournamentById(id);
       setTournament(data.tournament);
       setSquadName('');
-      setMemberIdInputs((prev) => prev.map(() => ''));
     } catch (e) {
       toast.error(e.response?.data?.message || 'Squad registration failed');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleJoinSquad = async () => {
+    const code = String(inviteCodeInput || '').trim();
+    if (!code) {
+      toast.error('Enter an invite code');
+      return;
+    }
+    setActionLoading(true);
+    try {
+      const res = await tournamentApi.joinSquadByInviteCode(id, code);
+      toast.success(res.data?.message || 'Joined squad');
+      if (res.data?.requiresPayment) {
+        toast('Squad is full. Captain can now pay to register.', { duration: 6000 });
+      }
+      await loadRoster(code);
+      const { data } = await tournamentApi.getTournamentById(id);
+      setTournament(data.tournament);
+      setInviteCodeInput('');
+    } catch (e) {
+      toast.error(e.response?.data?.message || 'Could not join squad');
     } finally {
       setActionLoading(false);
     }
@@ -420,12 +469,11 @@ export function TournamentDetailPage() {
       isSquadTournament ? (
         <div className="card-surface mt-8 space-y-4 p-5">
           <h3 className="font-display text-sm font-bold uppercase tracking-wide text-brand-light">
-            Register your squad (captain)
+            Squad registration
           </h3>
           <p className="text-sm text-brand-muted">
-            Add exactly <strong className="text-brand-light">{memberSlots}</strong> teammates using their account user IDs
-            (MongoDB ObjectIds from profile or database). Your squad will have {tournament.squadSize ?? 4} players
-            including you.
+            Squads are <strong className="text-brand-light">{tournament.squadSize ?? 4}</strong> players. Create a squad
+            to get an invite code, then teammates join using that code (no Mongo IDs).
           </p>
           <div>
             <label className="mb-1 block text-xs font-medium text-brand-muted" htmlFor="squad-name">
@@ -439,27 +487,88 @@ export function TournamentDetailPage() {
               placeholder="e.g. Team Alpha"
             />
           </div>
-          {memberIdInputs.map((val, i) => (
-            <div key={i}>
-              <label className="mb-1 block text-xs font-medium text-brand-muted" htmlFor={`member-${i}`}>
-                Teammate {i + 1} user ID
-              </label>
-              <input
-                id={`member-${i}`}
-                className="input w-full font-mono text-sm"
-                value={val}
-                onChange={(e) => {
-                  const next = [...memberIdInputs];
-                  next[i] = e.target.value;
-                  setMemberIdInputs(next);
-                }}
-                placeholder="507f1f77bcf86cd799439011"
-              />
+          <div className="flex flex-wrap gap-2">
+            <Button variant="primary" disabled={actionLoading} onClick={handleRegisterSquad}>
+              Create squad & get code
+            </Button>
+            {createdTeamId ? (
+              <Button
+                variant="secondary"
+                disabled={actionLoading}
+                onClick={() => openPayModal(createdTeamId)}
+                title="Pay entry fee once squad is full"
+              >
+                Pay entry fee (captain)
+              </Button>
+            ) : null}
+          </div>
+
+          {createdInviteCode ? (
+            <div className="rounded-xl border border-brand-border bg-brand-subtle/20 p-4">
+              <p className="text-xs uppercase tracking-wider text-brand-muted">Invite code</p>
+              <p className="mt-1 font-mono text-lg font-bold text-brand-light">{createdInviteCode}</p>
+              <p className="mt-1 text-xs text-brand-muted">
+                Share this code with teammates. They can join from this page using “Join with code”.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button
+                  variant="ghost"
+                  disabled={rosterLoading}
+                  onClick={() => loadRoster(createdInviteCode)}
+                  className="!px-3 !py-2 text-xs"
+                >
+                  {rosterLoading ? 'Refreshing…' : 'Refresh roster'}
+                </Button>
+              </div>
             </div>
-          ))}
-          <Button variant="primary" disabled={actionLoading} onClick={handleRegisterSquad}>
-            Submit squad
-          </Button>
+          ) : null}
+
+          {squadRoster?.team ? (
+            <div className="rounded-xl border border-brand-border bg-brand-subtle/10 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs uppercase tracking-wider text-brand-muted">Squad roster</p>
+                <p className="text-xs text-brand-muted">
+                  Slots left: <span className="text-brand-light">{squadRoster.membersNeeded ?? 0}</span>
+                </p>
+              </div>
+              <div className="mt-3 space-y-2 text-sm">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-brand-muted">Captain</span>
+                  <span className="text-brand-light">{squadRoster.team.captain?.username || '—'}</span>
+                </div>
+                <div className="border-t border-brand-border/60 pt-2">
+                  <p className="text-brand-muted">Members</p>
+                  <ul className="mt-2 space-y-1">
+                    {(squadRoster.team.members || []).length ? (
+                      (squadRoster.team.members || []).map((m) => (
+                        <li key={m?._id || m} className="flex items-center justify-between">
+                          <span className="text-brand-light">{m?.username || '—'}</span>
+                          <span className="text-xs text-brand-muted">{String(m?._id || m).slice(-6)}</span>
+                        </li>
+                      ))
+                    ) : (
+                      <li className="text-brand-muted">No teammates joined yet.</li>
+                    )}
+                  </ul>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          <div className="h-px bg-brand-border/70" />
+
+          <div className="space-y-2">
+            <p className="text-sm font-medium text-brand-light">Join with invite code</p>
+            <input
+              className="input w-full font-mono"
+              value={inviteCodeInput}
+              onChange={(e) => setInviteCodeInput(e.target.value)}
+              placeholder="e.g. A1B2C3D4"
+            />
+            <Button variant="secondary" disabled={actionLoading} onClick={handleJoinSquad}>
+              Join squad
+            </Button>
+          </div>
         </div>
       ) : null}
 
