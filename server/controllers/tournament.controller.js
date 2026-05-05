@@ -8,6 +8,27 @@ const { generateBracket } = require('../utils/bracket.utils');
 const crypto = require('crypto');
 const mongoose = require('mongoose');
 
+/** Map UI/legacy aliases to Tournament.game enum or a safe case-insensitive regex. */
+function buildGameListFilter(raw) {
+  if (raw == null) return undefined;
+  const trimmed = String(raw).trim();
+  if (!trimmed) return undefined;
+
+  const compact = trimmed.toLowerCase().replace(/\s+/g, '');
+  if (['pubg', 'pubgm'].includes(compact)) {
+    return 'PUBG';
+  }
+  if (['freefire', 'free_fire', 'garenafreefire', 'garenaff', 'ff'].includes(compact)) {
+    return 'FreeFire';
+  }
+  if (trimmed === 'PUBG' || trimmed === 'FreeFire') {
+    return trimmed;
+  }
+
+  const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`^${escaped}$`, 'i');
+}
+
 async function addSquadPlayersToLeaderboard(team, tournamentId) {
   const leaderboard = await Leaderboard.findOne({ tournament: tournamentId });
   if (!leaderboard) return;
@@ -115,7 +136,10 @@ async function getAllTournaments(req, res) {
     const skip = (page - 1) * limit;
 
     const filters = {};
-    if (game) filters.game = game;
+    const gameFilter = buildGameListFilter(game);
+    if (gameFilter !== undefined) {
+      filters.game = gameFilter;
+    }
     if (status) filters.status = status;
 
     const [tournaments, totalCount] = await Promise.all([

@@ -36,6 +36,20 @@ function isLikelyNepalMobile(phone) {
 
 // --- Helpers ---
 
+async function markPaymentRegistrationSkipped(payment, reasonKey = 'tournament_not_in_registration') {
+  await Payment.updateOne(
+    { _id: payment._id },
+    {
+      $set: {
+        'metadata.registrationSkipped': true,
+        'metadata.registrationSkipReason': reasonKey,
+        failureReason:
+          'Registration was closed before this payment applied. Contact support if you need a refund.',
+      },
+    }
+  );
+}
+
 async function registerPlayerAfterPayment(payment, tournament) {
   const t = tournament || (await Tournament.findById(payment.tournament));
   if (!t) return;
@@ -102,6 +116,10 @@ async function registerTeamAfterPayment(payment, tournament) {
 async function registerAfterPayment(payment) {
   const tournament = await Tournament.findById(payment.tournament);
   if (!tournament) return;
+  if (tournament.status !== 'registration') {
+    await markPaymentRegistrationSkipped(payment);
+    return;
+  }
   if (tournament.format === 'battle_royale_squad') {
     await registerTeamAfterPayment(payment, tournament);
   } else {
@@ -124,6 +142,10 @@ async function initiateEsewaPayment(req, res) {
       return res
         .status(400)
         .json({ message: 'This tournament is free, no payment needed' });
+    }
+
+    if (tournament.status !== 'registration') {
+      return res.status(400).json({ message: 'Registration is closed for this tournament' });
     }
 
     let metadata = {};
@@ -319,6 +341,10 @@ async function initiateKhaltiPayment(req, res) {
       return res
         .status(400)
         .json({ message: 'This tournament is free, no payment needed' });
+    }
+
+    if (tournament.status !== 'registration') {
+      return res.status(400).json({ message: 'Registration is closed for this tournament' });
     }
 
     let metadata = {};

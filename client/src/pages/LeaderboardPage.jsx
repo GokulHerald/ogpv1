@@ -13,13 +13,13 @@ const statusVariant = {
 };
 
 export function LeaderboardPage() {
-  const { data, loading, error } = useTournaments({ limit: 50, page: 1 });
+  const { data, loading, error } = useTournaments({ status: 'completed', limit: 50, page: 1 });
   const list = data?.tournaments || [];
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-10">
       <h1 className="font-display text-3xl font-black uppercase tracking-tight text-brand-light">Leaderboards</h1>
-      <p className="mt-2 text-brand-muted">Open a tournament to see full standings and points.</p>
+      <p className="mt-2 text-brand-muted">Only completed tournaments are shown here.</p>
 
       {loading ? (
         <div className="flex justify-center py-20">
@@ -31,8 +31,8 @@ export function LeaderboardPage() {
         <div className="mt-12">
           <EmptyState
             icon={BarChart2}
-            title="No tournaments yet"
-            description="When events go live, leaderboard links will show up here."
+            title="No completed tournaments yet"
+            description="Once a tournament is completed, it will appear here with its final standings."
           />
         </div>
       ) : (

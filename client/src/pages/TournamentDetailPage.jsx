@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { Upload } from 'lucide-react';
+import { Upload, Trophy } from 'lucide-react';
 import * as tournamentApi from '../api/tournament.api.js';
 import * as matchApi from '../api/match.api.js';
 import { useAuth } from '../hooks/useAuth.js';
 import { BracketView } from '../components/tournament/BracketView.jsx';
 import { StreamSubmitForm } from '../components/tournament/StreamSubmitForm.jsx';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner.jsx';
+import { EmptyState } from '../components/ui/EmptyState.jsx';
 import { Badge } from '../components/ui/Badge.jsx';
 import { Button } from '../components/ui/Button.jsx';
 import { Modal } from '../components/ui/Modal.jsx';
@@ -26,6 +27,7 @@ export function TournamentDetailPage() {
   const [tournament, setTournament] = useState(null);
   const [matches, setMatches] = useState([]);
   const [leaderboard, setLeaderboard] = useState(null);
+  const [leaderboardLoadError, setLeaderboardLoadError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [adminStatsLoading, setAdminStatsLoading] = useState(false);
@@ -40,20 +42,47 @@ export function TournamentDetailPage() {
   const [payModalOpen, setPayModalOpen] = useState(false);
   const [pendingTeamId, setPendingTeamId] = useState(null);
 
+  const refetchLeaderboard = useCallback(async () => {
+    try {
+      const { data } = await matchApi.getLeaderboard(id);
+      setLeaderboard(data?.leaderboard ?? null);
+      setLeaderboardLoadError(null);
+    } catch (e) {
+      setLeaderboard(null);
+      setLeaderboardLoadError(
+        e.response?.data?.message || e.message || 'Could not load leaderboard'
+      );
+    }
+  }, [id]);
+
   useEffect(() => {
     let cancelled = false;
     async function load() {
       setLoading(true);
+      setLeaderboardLoadError(null);
       try {
-        const [tRes, mRes, lRes] = await Promise.all([
+        const [tRes, mRes] = await Promise.all([
           tournamentApi.getTournamentById(id),
           matchApi.getMatchesByTournament(id).catch(() => ({ data: { matches: [] } })),
-          matchApi.getLeaderboard(id).catch(() => ({ data: null })),
         ]);
         if (!cancelled) {
           setTournament(tRes.data.tournament);
           setMatches(mRes.data.matches || []);
-          setLeaderboard(lRes.data?.leaderboard || null);
+        }
+        try {
+          const { data } = await matchApi.getLeaderboard(id);
+          if (!cancelled) {
+            setLeaderboard(data?.leaderboard ?? null);
+            setLeaderboardLoadError(null);
+          }
+        } catch (le) {
+          if (!cancelled) {
+            setLeaderboard(null);
+            setLeaderboardLoadError(
+              le.response?.data?.message || le.message || 'Could not load leaderboard'
+            );
+            toast.error('Could not load standings');
+          }
         }
       } catch {
         if (!cancelled) toast.error('Failed to load tournament');
@@ -67,14 +96,21 @@ export function TournamentDetailPage() {
     };
   }, [id]);
 
+  useEffect(() => {
+    if (tournament?.status !== 'registration') {
+      setPayModalOpen(false);
+    }
+  }, [tournament?.status]);
+
   const refetchMatches = useCallback(async () => {
     try {
       const { data } = await matchApi.getMatchesByTournament(id);
       setMatches(data.matches || []);
+      await refetchLeaderboard();
     } catch {
       toast.error('Failed to refresh matches');
     }
-  }, [id]);
+  }, [id, refetchLeaderboard]);
 
   const isSquadTournament = tournament?.format === 'battle_royale_squad';
 
@@ -193,6 +229,10 @@ export function TournamentDetailPage() {
     brLobbyMatch.status !== 'completed';
 
   const openPayModal = (teamId = null) => {
+    if (tournament && tournament.status !== 'registration') {
+      toast.error('Registration is closed for this tournament');
+      return;
+    }
     setPendingTeamId(teamId);
     setPayModalOpen(true);
   };
@@ -348,6 +388,7 @@ export function TournamentDetailPage() {
       ]);
       setTournament(tRes.data.tournament);
       setMatches(mRes.data.matches || []);
+      await refetchLeaderboard();
       setBrWinnerTeamId('');
     } catch (e) {
       toast.error(e.response?.data?.message || 'Could not set winner');
@@ -367,6 +408,7 @@ export function TournamentDetailPage() {
       ]);
       setTournament(tRes.data.tournament);
       setMatches(mRes.data.matches || []);
+      await refetchLeaderboard();
     } catch (e) {
       toast.error(e.response?.data?.message || 'Could not start');
     } finally {
@@ -441,7 +483,7 @@ export function TournamentDetailPage() {
       </div>
 
       <Modal
-        open={payModalOpen}
+        open={payModalOpen && tournament.status === 'registration'}
         onClose={() => (!actionLoading ? setPayModalOpen(false) : null)}
         title="Choose payment gateway"
       >
@@ -787,11 +829,13 @@ export function TournamentDetailPage() {
         ) : null}
       </section>
 
-      {leaderboard?.entries?.length ? (
-        <section className="mt-12">
-          <h2 className="font-display mb-4 text-xl font-black uppercase tracking-wide text-brand-light">
-            Leaderboard
-          </h2>
+      <section className="mt-12">
+        <h2 className="font-display mb-4 text-xl font-black uppercase tracking-wide text-brand-light">
+          Leaderboard
+        </h2>
+        {leaderboardLoadError ? (
+          <p className="card-surface p-4 text-sm text-red-400">{leaderboardLoadError}</p>
+        ) : leaderboard?.entries?.length ? (
           <div className="card-surface overflow-x-auto p-4">
             <table className="w-full text-left text-sm">
               <thead>
@@ -799,21 +843,44 @@ export function TournamentDetailPage() {
                   <th className="pb-2 pr-4">#</th>
                   <th className="pb-2 pr-4">Player</th>
                   <th className="pb-2">Points</th>
+                  <th className="pb-2 pl-4">Matches</th>
+                  <th className="pb-2 pl-4">Wins</th>
+                  <th className="pb-2 pl-4">Total points</th>
                 </tr>
               </thead>
               <tbody>
                 {leaderboard.entries.map((e, i) => (
                   <tr key={e.player?._id || i} className="border-b border-brand-border/60">
                     <td className="py-2 pr-4 text-brand-muted">{e.rank ?? i + 1}</td>
-                    <td className="py-2 pr-4 text-brand-light">{e.player?.username || '—'}</td>
-                    <td className="py-2">{e.points ?? 0}</td>
+                    <td className="py-2 pr-4">
+                      <div className="font-semibold text-brand-light">{e.player?.username || '—'}</div>
+                      <div className="text-xs text-brand-muted">
+                        Games: {e.player?.stats?.gamesPlayed ?? 0} · Wins: {e.player?.stats?.totalWins ?? 0}
+                      </div>
+                    </td>
+                    <td className="py-2 font-semibold text-brand-light">{e.points ?? 0}</td>
+                    <td className="py-2 pl-4 text-brand-light">{e.matchesPlayed ?? 0}</td>
+                    <td className="py-2 pl-4 text-brand-light">{e.wins ?? 0}</td>
+                    <td className="py-2 pl-4 text-brand-light">{e.player?.stats?.totalPoints ?? 0}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        </section>
-      ) : null}
+        ) : (
+          <div className="card-surface p-6">
+            <EmptyState
+              icon={Trophy}
+              title="No standings yet"
+              description={
+                tournament.status === 'registration'
+                  ? 'Standings fill in once players are registered and match results are recorded.'
+                  : 'Points update when organizers submit match results (including BR lobby stats).'
+              }
+            />
+          </div>
+        )}
+      </section>
     </div>
   );
 }

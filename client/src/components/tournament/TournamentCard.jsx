@@ -128,7 +128,15 @@ export function TournamentCard({ tournament, className }) {
 
         <div className="mt-4">
           <span className="btn-primary inline-flex w-full items-center justify-center rounded-lg py-2.5 text-center text-sm font-bold uppercase">
-            {isBr ? 'View / register squad' : 'Join'}
+            {status === 'registration'
+              ? isBr
+                ? 'View / register squad'
+                : 'Join'
+              : status === 'ongoing'
+                ? 'View bracket & standings'
+                : status === 'completed'
+                  ? 'View results'
+                  : 'View'}
           </span>
         </div>
       </div>
