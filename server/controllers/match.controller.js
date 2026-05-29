@@ -63,18 +63,18 @@ async function getMatchesByTournament(req, res) {
     }
 
     const matches = await Match.find(filters)
-      .populate('player1', 'username profilePicture')
-      .populate('player2', 'username profilePicture')
-      .populate('winner', 'username profilePicture')
+      .populate('player1', 'username firstName lastName profilePicture')
+      .populate('player2', 'username firstName lastName profilePicture')
+      .populate('winner', 'username firstName lastName profilePicture')
       .populate({
         path: 'brTeams.team',
         select: 'name captain members',
         populate: [
-          { path: 'captain', select: 'username profilePicture' },
-          { path: 'members', select: 'username profilePicture' },
+          { path: 'captain', select: 'username firstName lastName profilePicture' },
+          { path: 'members', select: 'username firstName lastName profilePicture' },
         ],
       })
-      .populate('brTeams.players', 'username profilePicture')
+      .populate('brTeams.players', 'username firstName lastName profilePicture')
       .populate('winnerTeam', 'name captain')
       .sort({ round: 1, matchNumber: 1 });
 
@@ -167,17 +167,17 @@ async function submitStreamLink(req, res) {
 
     await match.save();
     const updated = await Match.findById(matchId)
-      .populate('player1', 'username profilePicture')
-      .populate('player2', 'username profilePicture')
+      .populate('player1', 'username firstName lastName profilePicture')
+      .populate('player2', 'username firstName lastName profilePicture')
       .populate({
         path: 'brTeams.team',
         select: 'name captain members',
         populate: [
-          { path: 'captain', select: 'username profilePicture' },
-          { path: 'members', select: 'username profilePicture' },
+          { path: 'captain', select: 'username firstName lastName profilePicture' },
+          { path: 'members', select: 'username firstName lastName profilePicture' },
         ],
       })
-      .populate('brTeams.players', 'username profilePicture');
+      .populate('brTeams.players', 'username firstName lastName profilePicture');
 
     return res.status(200).json({ message: 'Stream link submitted', match: updated });
   } catch (error) {
@@ -241,17 +241,17 @@ async function submitMatchProof(req, res) {
 
     await match.save();
     const updated = await Match.findById(matchId)
-      .populate('player1', 'username profilePicture')
-      .populate('player2', 'username profilePicture')
+      .populate('player1', 'username firstName lastName profilePicture')
+      .populate('player2', 'username firstName lastName profilePicture')
       .populate({
         path: 'brTeams.team',
         select: 'name captain members',
         populate: [
-          { path: 'captain', select: 'username profilePicture' },
-          { path: 'members', select: 'username profilePicture' },
+          { path: 'captain', select: 'username firstName lastName profilePicture' },
+          { path: 'members', select: 'username firstName lastName profilePicture' },
         ],
       })
-      .populate('brTeams.players', 'username profilePicture');
+      .populate('brTeams.players', 'username firstName lastName profilePicture');
 
     return res.status(200).json({
       message: 'Screenshot uploaded successfully',
@@ -498,11 +498,11 @@ async function setBrStats(req, res) {
         path: 'brTeams.team',
         select: 'name captain members',
         populate: [
-          { path: 'captain', select: 'username profilePicture' },
-          { path: 'members', select: 'username profilePicture' },
+          { path: 'captain', select: 'username firstName lastName profilePicture' },
+          { path: 'members', select: 'username firstName lastName profilePicture' },
         ],
       })
-      .populate('brTeams.players', 'username profilePicture');
+      .populate('brTeams.players', 'username firstName lastName profilePicture');
 
     return res.status(200).json({
       message: 'BR stats saved; winner finalized',

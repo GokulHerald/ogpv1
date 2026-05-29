@@ -8,6 +8,7 @@ import { BracketView } from '../components/tournament/BracketView.jsx';
 import { StreamSubmitForm } from '../components/tournament/StreamSubmitForm.jsx';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner.jsx';
 import { EmptyState } from '../components/ui/EmptyState.jsx';
+import { formatPlayerDisplayName } from '../utils/playerDisplay.js';
 import { Badge } from '../components/ui/Badge.jsx';
 import { Button } from '../components/ui/Button.jsx';
 import { Modal } from '../components/ui/Modal.jsx';
@@ -210,10 +211,10 @@ export function TournamentDetailPage() {
     const p1 = myMatch.player1?._id ?? myMatch.player1;
     const p2 = myMatch.player2?._id ?? myMatch.player2;
     if (p1 != null && String(p1) === uid) {
-      return myMatch.player2?.username || 'TBD';
+      return formatPlayerDisplayName(myMatch.player2);
     }
     if (p2 != null && String(p2) === uid) {
-      return myMatch.player1?.username || 'TBD';
+      return formatPlayerDisplayName(myMatch.player1);
     }
     return '—';
   }, [myMatch, user?._id]);
@@ -692,7 +693,12 @@ export function TournamentDetailPage() {
                   <tbody>
                     {(adminStats.players || []).map((p) => (
                       <tr key={p.playerId} className="border-b border-brand-border/60 align-top">
-                        <td className="py-2 pr-4 text-brand-light">{p.player?.username || p.playerId}</td>
+                        <td className="py-2 pr-4 text-brand-light">
+                          {(() => {
+                            const label = formatPlayerDisplayName(p.player);
+                            return label !== 'TBD' ? label : p.playerId;
+                          })()}
+                        </td>
                         <td className="py-2 pr-4">{p.totals?.totalPoints ?? 0}</td>
                         <td className="py-2 pr-4">{p.totals?.totalScore ?? 0}</td>
                         <td className="py-2 pr-4">{p.totals?.wins ?? 0}</td>
@@ -853,7 +859,10 @@ export function TournamentDetailPage() {
                   <tr key={e.player?._id || i} className="border-b border-brand-border/60">
                     <td className="py-2 pr-4 text-brand-muted">{e.rank ?? i + 1}</td>
                     <td className="py-2 pr-4">
-                      <div className="font-semibold text-brand-light">{e.player?.username || '—'}</div>
+                      <div className="font-semibold text-brand-light">{formatPlayerDisplayName(e.player)}</div>
+                      {e.player?.username ? (
+                        <div className="text-xs text-brand-muted">@{e.player.username}</div>
+                      ) : null}
                       <div className="text-xs text-brand-muted">
                         Games: {e.player?.stats?.gamesPlayed ?? 0} · Wins: {e.player?.stats?.totalWins ?? 0}
                       </div>

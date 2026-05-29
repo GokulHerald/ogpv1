@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import * as tournamentApi from '../api/tournament.api.js';
 import { TournamentCard } from '../components/tournament/TournamentCard.jsx';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner.jsx';
-import { formatCountdownHMS, getSoonestUpcomingTournament } from '../utils/countdown.js';
+import { formatCountdownDHMS, getSoonestUpcomingTournament } from '../utils/countdown.js';
 
 const HERO_AVATARS = [
   { initials: 'AK', bg: 'bg-violet-600' },
@@ -15,21 +15,28 @@ const HERO_AVATARS = [
 ];
 
 function CountdownStrip({ targetDate }) {
-  const [parts, setParts] = useState(() => formatCountdownHMS(targetDate));
+  const [parts, setParts] = useState(() => formatCountdownDHMS(targetDate));
 
   useEffect(() => {
-    setParts(formatCountdownHMS(targetDate));
+    setParts(formatCountdownDHMS(targetDate));
     if (!targetDate) return undefined;
-    const t = setInterval(() => setParts(formatCountdownHMS(targetDate)), 1000);
+    const t = setInterval(() => setParts(formatCountdownDHMS(targetDate)), 1000);
     return () => clearInterval(t);
   }, [targetDate]);
 
+  const units = [
+    { v: parts.d, l: 'DAYS' },
+    { v: parts.h, l: 'HOURS' },
+    { v: parts.m, l: 'MINS' },
+    { v: parts.s, l: 'SECS' },
+  ];
+
   if (!targetDate || parts.done) {
     return (
-      <div className="flex flex-wrap items-end justify-center gap-3 sm:gap-6">
-        {['HOURS', 'MINS', 'SECS'].map((l) => (
+      <div className="flex flex-wrap items-end justify-center gap-2 sm:gap-4">
+        {units.map(({ l }) => (
           <div key={l} className="text-center">
-            <div className="font-display text-4xl font-bold tabular-nums text-brand-muted sm:text-5xl">00</div>
+            <div className="font-display text-3xl font-bold tabular-nums text-brand-muted sm:text-4xl">00</div>
             <div className="mt-1 text-[10px] font-semibold tracking-widest text-brand-muted">{l}</div>
           </div>
         ))}
@@ -38,16 +45,10 @@ function CountdownStrip({ targetDate }) {
   }
 
   return (
-    <div className="flex flex-wrap items-end justify-center gap-3 sm:gap-6">
-      {[
-        { v: parts.h, l: 'HOURS' },
-        { v: parts.m, l: 'MINS' },
-        { v: parts.s, l: 'SECS' },
-      ].map(({ v, l }) => (
+    <div className="flex flex-wrap items-end justify-center gap-2 sm:gap-4">
+      {units.map(({ v, l }) => (
         <div key={l} className="text-center">
-          <div className="font-display text-4xl font-bold tabular-nums text-brand-light sm:text-5xl">
-            {v}
-          </div>
+          <div className="font-display text-3xl font-bold tabular-nums text-brand-light sm:text-4xl">{v}</div>
           <div className="mt-1 text-[10px] font-semibold tracking-widest text-brand-muted">{l}</div>
         </div>
       ))}

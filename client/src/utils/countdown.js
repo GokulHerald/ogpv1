@@ -8,13 +8,25 @@ export function formatCountdown(targetDate) {
 }
 
 export function formatCountdownHMS(targetDate) {
-  if (targetDate == null) return { h: '00', m: '00', s: '00', done: true };
+  const parts = formatCountdownDHMS(targetDate);
+  return { h: parts.h, m: parts.m, s: parts.s, done: parts.done };
+}
+
+/** Days, hours, minutes, seconds until target (or zeros when done). */
+export function formatCountdownDHMS(targetDate) {
+  if (targetDate == null) {
+    return { d: '00', h: '00', m: '00', s: '00', done: true };
+  }
   const diff = new Date(targetDate) - new Date();
-  if (diff <= 0) return { h: '00', m: '00', s: '00', done: true };
-  const h = Math.floor(diff / 3600000);
+  if (diff <= 0) {
+    return { d: '00', h: '00', m: '00', s: '00', done: true };
+  }
+  const d = Math.floor(diff / 86400000);
+  const h = Math.floor((diff % 86400000) / 3600000);
   const m = Math.floor((diff % 3600000) / 60000);
   const s = Math.floor((diff % 60000) / 1000);
   return {
+    d: String(d).padStart(2, '0'),
     h: String(h).padStart(2, '0'),
     m: String(m).padStart(2, '0'),
     s: String(s).padStart(2, '0'),

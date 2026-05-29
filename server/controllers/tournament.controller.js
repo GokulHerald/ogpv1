@@ -145,6 +145,14 @@ async function getAllTournaments(req, res) {
     const [tournaments, totalCount] = await Promise.all([
       Tournament.find(filters)
         .populate('organizer', 'username phoneNumber')
+        .populate('registeredPlayers', 'username firstName lastName profilePicture')
+        .populate({
+          path: 'registeredTeams',
+          populate: [
+            { path: 'captain', select: 'username firstName lastName profilePicture' },
+            { path: 'members', select: 'username firstName lastName profilePicture' },
+          ],
+        })
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit),
@@ -170,12 +178,12 @@ async function getTournamentById(req, res) {
 
     const tournament = await Tournament.findById(id)
       .populate('organizer', 'username')
-      .populate('registeredPlayers', 'username stats profilePicture')
+      .populate('registeredPlayers', 'username firstName lastName stats profilePicture')
       .populate({
         path: 'registeredTeams',
         populate: [
-          { path: 'captain', select: 'username profilePicture' },
-          { path: 'members', select: 'username profilePicture' },
+          { path: 'captain', select: 'username firstName lastName profilePicture' },
+          { path: 'members', select: 'username firstName lastName profilePicture' },
         ],
       })
       .populate('bracket')
@@ -788,11 +796,11 @@ async function getAdminPlayerStats(req, res) {
       .populate({
         path: 'registeredTeams',
         populate: [
-          { path: 'captain', select: 'username profilePicture' },
-          { path: 'members', select: 'username profilePicture' },
+          { path: 'captain', select: 'username firstName lastName profilePicture' },
+          { path: 'members', select: 'username firstName lastName profilePicture' },
         ],
       })
-      .populate('registeredPlayers', 'username profilePicture')
+      .populate('registeredPlayers', 'username firstName lastName profilePicture')
       .populate('winnerTeam', 'name captain');
 
     if (!tournament) {
@@ -804,15 +812,15 @@ async function getAdminPlayerStats(req, res) {
     }
 
     const matches = await Match.find({ tournament: tournament._id })
-      .populate('player1', 'username profilePicture')
-      .populate('player2', 'username profilePicture')
-      .populate('winner', 'username profilePicture')
+      .populate('player1', 'username firstName lastName profilePicture')
+      .populate('player2', 'username firstName lastName profilePicture')
+      .populate('winner', 'username firstName lastName profilePicture')
       .populate({
         path: 'brTeams.team',
         select: 'name captain members',
         populate: [
-          { path: 'captain', select: 'username profilePicture' },
-          { path: 'members', select: 'username profilePicture' },
+          { path: 'captain', select: 'username firstName lastName profilePicture' },
+          { path: 'members', select: 'username firstName lastName profilePicture' },
         ],
       })
       .populate('brTeams.players', 'username profilePicture')
@@ -834,7 +842,15 @@ async function getAdminPlayerStats(req, res) {
         const userDoc = typeof userDocOrId === 'object' ? userDocOrId : null;
         players.set(idStr, {
           playerId: idStr,
-          player: userDoc ? { _id: userDoc._id, username: userDoc.username, profilePicture: userDoc.profilePicture } : null,
+          player: userDoc
+            ? {
+                _id: userDoc._id,
+                username: userDoc.username,
+                firstName: userDoc.firstName,
+                lastName: userDoc.lastName,
+                profilePicture: userDoc.profilePicture,
+              }
+            : null,
           totals: {
             matchesPlayed: 0,
             wins: 0,
@@ -857,6 +873,8 @@ async function getAdminPlayerStats(req, res) {
           cur.player = {
             _id: userDocOrId._id,
             username: userDocOrId.username,
+            firstName: userDocOrId.firstName,
+            lastName: userDocOrId.lastName,
             profilePicture: userDocOrId.profilePicture,
           };
         }

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import clsx from 'clsx';
 import { formatCountdown } from '../../utils/countdown.js';
+import { playerInitials } from '../../utils/playerDisplay.js';
 
 const AVATAR_COLORS = [
   'bg-violet-600',
@@ -11,11 +12,6 @@ const AVATAR_COLORS = [
   'bg-rose-600',
   'bg-cyan-600',
 ];
-
-function initialsFromUser(u) {
-  const name = u?.username || '?';
-  return name.slice(0, 2).toUpperCase();
-}
 
 export function TournamentCard({ tournament, className }) {
   const [, setTick] = useState(0);
@@ -96,7 +92,7 @@ export function TournamentCard({ tournament, className }) {
                       AVATAR_COLORS[i % AVATAR_COLORS.length]
                     )}
                   >
-                    {initialsFromUser(p)}
+                    {playerInitials(p)}
                   </div>
                 ))}
               </div>

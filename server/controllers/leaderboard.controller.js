@@ -6,7 +6,7 @@ async function getLeaderboard(req, res) {
 
     const leaderboard = await Leaderboard.findOne({ tournament: tournamentId }).populate(
       'entries.player',
-      'username profilePicture stats'
+      'username firstName lastName profilePicture stats'
     );
 
     if (!leaderboard) {

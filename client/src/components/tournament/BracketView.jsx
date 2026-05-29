@@ -1,6 +1,7 @@
 import clsx from 'clsx';
 import { EmptyState } from '../ui/EmptyState.jsx';
 import { GitBranch } from 'lucide-react';
+import { formatPlayerDisplayName } from '../../utils/playerDisplay.js';
 
 function pid(u) {
   if (!u) return null;
@@ -53,7 +54,7 @@ function BracketMatchCard({ match }) {
   const p2Win = w && p2 && w === p2;
 
   const Row = ({ userDoc, win, lose }) => {
-    const name = userDoc?.username || 'TBD';
+    const name = formatPlayerDisplayName(userDoc);
     const initial = name.slice(0, 1).toUpperCase();
     return (
       <div

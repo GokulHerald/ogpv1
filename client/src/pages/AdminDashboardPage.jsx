@@ -15,6 +15,7 @@ import { Modal } from '../components/ui/Modal.jsx';
 import { Badge } from '../components/ui/Badge.jsx';
 import { StreamEmbed } from '../components/tournament/StreamEmbed.jsx';
 import { LazyStreamEmbed } from '../components/tournament/LazyStreamEmbed.jsx';
+import { formatPlayerDisplayName } from '../utils/playerDisplay.js';
 
 const tabs = [
   { id: 'mine', label: 'My tournaments' },
@@ -125,9 +126,10 @@ function BrLobbyOrganizerCard({ match, tournamentName, tournamentId, onRefresh }
         typeof t === 'object' && t != null ? t.name?.trim() || t.captain?.username || 'Squad' : 'Squad';
       (slot.players || []).forEach((p) => {
         const uid = String(p?._id || p);
+        const displayName = formatPlayerDisplayName(p);
         rows.push({
           userId: uid,
-          username: p?.username || uid.slice(-6),
+          username: displayName !== 'TBD' ? displayName : uid.slice(-6),
           teamId,
           teamName,
         });
@@ -209,7 +211,7 @@ function BrLobbyOrganizerCard({ match, tournamentName, tournamentId, onRefresh }
                   {players.map((p) => {
                     const pid = String(p?._id || p);
                     const row = streamRowForUser(pid);
-                    const uname = p?.username || 'Player';
+                    const uname = formatPlayerDisplayName(p);
                     if (!row?.streamUrl) {
                       return (
                         <div
@@ -421,8 +423,8 @@ function OrganizerMatchCard({ match, tournamentName, tournamentId, onSetResult, 
 
   const p1User = typeof match.player1 === 'object' && match.player1 != null ? match.player1 : null;
   const p2User = typeof match.player2 === 'object' && match.player2 != null ? match.player2 : null;
-  const p1Username = p1User?.username || 'Player 1';
-  const p2Username = p2User?.username || 'Player 2';
+  const p1Username = formatPlayerDisplayName(p1User);
+  const p2Username = formatPlayerDisplayName(p2User);
 
   return (
     <div className="card-surface flex flex-col p-4">
@@ -440,11 +442,11 @@ function OrganizerMatchCard({ match, tournamentName, tournamentId, onSetResult, 
 
       <div className="mt-4 flex flex-wrap gap-6 border-t border-brand-border pt-4 text-sm">
         <div>
-          <p className="text-xs uppercase tracking-wider text-brand-muted">Player 1</p>
+          <p className="text-xs uppercase tracking-wider text-brand-muted">Competitor A</p>
           <p className="mt-0.5 font-medium text-brand-light">{p1Username}</p>
         </div>
         <div>
-          <p className="text-xs uppercase tracking-wider text-brand-muted">Player 2</p>
+          <p className="text-xs uppercase tracking-wider text-brand-muted">Competitor B</p>
           <p className="mt-0.5 font-medium text-brand-light">{p2Username}</p>
         </div>
       </div>
@@ -720,8 +722,8 @@ export function AdminDashboardPage() {
   const p2 = resultModal.match?.player2;
   const p1id = p1 && (typeof p1 === 'object' ? p1._id : p1);
   const p2id = p2 && (typeof p2 === 'object' ? p2._id : p2);
-  const p1name = typeof p1 === 'object' && p1?.username ? p1.username : 'Player 1';
-  const p2name = typeof p2 === 'object' && p2?.username ? p2.username : 'Player 2';
+  const p1name = formatPlayerDisplayName(typeof p1 === 'object' ? p1 : null);
+  const p2name = formatPlayerDisplayName(typeof p2 === 'object' ? p2 : null);
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8">
@@ -977,7 +979,11 @@ export function AdminDashboardPage() {
                     <tbody>
                       {(statsData.players || []).map((p) => (
                         <tr key={p.playerId} className="border-b border-brand-border/60 align-top">
-                          <td className="py-2 pr-4 text-brand-light">{p.player?.username || p.playerId}</td>
+                          <td className="py-2 pr-4 text-brand-light">
+                            {formatPlayerDisplayName(p.player) !== 'TBD'
+                              ? formatPlayerDisplayName(p.player)
+                              : p.playerId}
+                          </td>
                           <td className="py-2 pr-4">{p.totals?.totalPoints ?? 0}</td>
                           <td className="py-2 pr-4">{p.totals?.totalScore ?? 0}</td>
                           <td className="py-2 pr-4">{p.totals?.wins ?? 0}</td>
