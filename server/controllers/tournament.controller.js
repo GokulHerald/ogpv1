@@ -131,6 +131,7 @@ async function createTournament(req, res) {
 async function getAllTournaments(req, res) {
   try {
     const { game, status } = req.query;
+    const joinableOnly = req.query.joinable === 'true' || req.query.joinable === '1';
     const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
     const limit = Math.max(parseInt(req.query.limit, 10) || 10, 1);
     const skip = (page - 1) * limit;
@@ -140,7 +141,12 @@ async function getAllTournaments(req, res) {
     if (gameFilter !== undefined) {
       filters.game = gameFilter;
     }
-    if (status) filters.status = status;
+    if (joinableOnly) {
+      filters.status = 'registration';
+      filters.$or = [{ startDate: null }, { startDate: { $gt: new Date() } }];
+    } else if (status) {
+      filters.status = status;
+    }
 
     const [tournaments, totalCount] = await Promise.all([
       Tournament.find(filters)

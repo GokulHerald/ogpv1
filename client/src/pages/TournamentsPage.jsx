@@ -6,26 +6,29 @@ import { LoadingSpinner } from '../components/ui/LoadingSpinner.jsx';
 import { EmptyState } from '../components/ui/EmptyState.jsx';
 import { Trophy } from 'lucide-react';
 
-const defaultFilters = { game: undefined, status: undefined, page: 1, limit: 10 };
+const defaultFilters = { game: undefined, view: 'joinable', page: 1, limit: 10 };
 
 export function TournamentsPage() {
   const [filters, setFilters] = useState(defaultFilters);
-  const params = useMemo(
-    () => ({
-      game: filters.game,
-      status: filters.status,
-      page: filters.page,
-      limit: filters.limit,
-    }),
-    [filters.game, filters.status, filters.page, filters.limit]
-  );
+  const params = useMemo(() => {
+    const base = { game: filters.game, page: filters.page, limit: filters.limit };
+    if (filters.view === 'joinable') {
+      return { ...base, joinable: true };
+    }
+    if (filters.view) {
+      return { ...base, status: filters.view };
+    }
+    return base;
+  }, [filters.game, filters.view, filters.page, filters.limit]);
 
   const { data, loading, error } = useTournaments(params);
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-10">
       <h1 className="font-display text-3xl font-black uppercase tracking-tight text-brand-light">Tournaments</h1>
-      <p className="mt-2 text-brand-muted">Browse and join open competitions.</p>
+      <p className="mt-2 text-brand-muted">
+        Browse tournaments open for registration. Use the status filter to view live or past events.
+      </p>
 
       <TournamentFilters
         values={filters}

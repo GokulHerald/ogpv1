@@ -7,6 +7,7 @@ const Tournament = require('../models/Tournament');
 const Leaderboard = require('../models/Leaderboard');
 const Team = require('../models/Team');
 const { assertPaymentUrls } = require('../utils/appUrls');
+const { buildEsewaSignature, formatEsewaAmount, verifyEsewaPaymentStatus } = require('../utils/esewa');
 
 function generateTransactionUuid() {
   return `TXN-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
@@ -199,20 +200,31 @@ async function initiateEsewaPayment(req, res) {
 
     const merchantId = process.env.ESEWA_MERCHANT_ID;
     const secret = process.env.ESEWA_SECRET;
+    if (!merchantId || !secret) {
+      return res.status(500).json({
+        message:
+          'eSewa is not configured on the server (ESEWA_MERCHANT_ID / ESEWA_SECRET). Set them in Vercel server env and redeploy.',
+      });
+    }
     const { serverUrl } = assertPaymentUrls();
 
-    const message = `total_amount=${amount},transaction_uuid=${payment.transactionUuid},product_code=${merchantId}`;
-    const signature = crypto.createHmac('sha256', secret).update(message).digest('base64');
+    const totalFormatted = formatEsewaAmount(amount);
+    const { signature } = buildEsewaSignature({
+      secret,
+      totalAmount: amount,
+      transactionUuid: payment.transactionUuid,
+      productCode: merchantId,
+    });
 
     return res.status(200).json({
       payment_id: payment._id,
-      amount,
-      tax_amount: 0,
-      total_amount: amount,
+      amount: totalFormatted,
+      tax_amount: '0',
+      total_amount: totalFormatted,
       transaction_uuid: payment.transactionUuid,
       product_code: merchantId,
-      product_service_charge: 0,
-      product_delivery_charge: 0,
+      product_service_charge: '0',
+      product_delivery_charge: '0',
       success_url: `${serverUrl}/api/v1/payments/esewa/success`,
       failure_url: `${serverUrl}/api/v1/payments/esewa/failure`,
       signed_field_names: 'total_amount,transaction_uuid,product_code',
@@ -257,18 +269,23 @@ async function esewaSuccess(req, res) {
     try {
       const statusUrl = process.env.ESEWA_STATUS_URL;
       const merchantId = process.env.ESEWA_MERCHANT_ID;
-      const verifyRes = await axios.get(statusUrl, {
-        params: {
-          product_code: merchantId,
-          // Use our stored amount to avoid sandbox formatting mismatches
-          total_amount: payment.amount,
-          transaction_uuid,
-        },
+      if (!statusUrl || !merchantId) {
+        payment.status = 'failed';
+        payment.failureReason = 'eSewa status URL or merchant ID not configured on server';
+        await payment.save();
+        return res.redirect(`${clientUrl}/payment/failed?reason=server_config`);
+      }
+
+      const verification = await verifyEsewaPaymentStatus(axios, {
+        statusUrl,
+        merchantId,
+        transactionUuid: transaction_uuid,
+        amount: payment.amount,
       });
 
-      if (verifyRes.data?.status === 'COMPLETE') {
+      if (verification.ok) {
         payment.status = 'completed';
-        payment.esewaRefId = transaction_code || '';
+        payment.esewaRefId = transaction_code || verification.data?.ref_id || '';
         payment.esewaTransactionUuid = transaction_uuid;
         payment.paidAt = new Date();
         await payment.save();
@@ -281,7 +298,10 @@ async function esewaSuccess(req, res) {
       }
 
       payment.status = 'failed';
-      payment.failureReason = 'Verification failed';
+      payment.failureReason =
+        verification.data?.status === 'PENDING'
+          ? 'Payment still pending at eSewa — try again in a minute'
+          : `eSewa status: ${verification.data?.status || 'not COMPLETE'}`;
       await payment.save();
     } catch (err) {
       // eslint-disable-next-line no-console
@@ -291,7 +311,7 @@ async function esewaSuccess(req, res) {
       await payment.save();
     }
 
-    return res.redirect(`${clientUrl}/payment/failed`);
+    return res.redirect(`${clientUrl}/payment/failed?reason=verify`);
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error('esewaSuccess error', err);

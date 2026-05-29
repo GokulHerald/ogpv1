@@ -20,14 +20,15 @@ export function TournamentFilters({ values, onChange, onReset }) {
         <label className="mb-1.5 block text-sm font-medium text-brand-light">Status</label>
         <select
           className="input"
-          value={values.status || ''}
-          onChange={(e) => onChange({ ...values, status: e.target.value || undefined, page: 1 })}
+          value={values.view ?? 'joinable'}
+          onChange={(e) => onChange({ ...values, view: e.target.value || 'joinable', page: 1 })}
         >
-          <option value="">All</option>
-          <option value="registration">Registration</option>
-          <option value="ongoing">Ongoing</option>
+          <option value="joinable">Open to join</option>
+          <option value="ongoing">Live / ongoing</option>
+          <option value="registration">Registration (all)</option>
           <option value="completed">Completed</option>
           <option value="cancelled">Cancelled</option>
+          <option value="">All statuses</option>
         </select>
       </div>
       <div className="w-full min-w-[100px] sm:w-28">

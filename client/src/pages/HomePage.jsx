@@ -64,7 +64,7 @@ export function HomePage() {
     let c = false;
     (async () => {
       try {
-        const { data } = await tournamentApi.getAllTournaments({ limit: 24, page: 1 });
+        const { data } = await tournamentApi.getAllTournaments({ limit: 24, page: 1, joinable: true });
         if (!c) setTournaments(data.tournaments || []);
       } catch {
         if (!c) setTournaments([]);

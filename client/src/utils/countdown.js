@@ -38,7 +38,7 @@ export function getSoonestUpcomingTournament(tournaments) {
   if (!Array.isArray(tournaments) || tournaments.length === 0) return null;
   const now = Date.now();
   const upcoming = tournaments
-    .filter((t) => t.startDate && ['registration', 'ongoing'].includes(t.status))
+    .filter((t) => t.status === 'registration' && t.startDate)
     .map((t) => ({ t, start: new Date(t.startDate).getTime() }))
     .filter(({ start }) => start > now)
     .sort((a, b) => a.start - b.start);

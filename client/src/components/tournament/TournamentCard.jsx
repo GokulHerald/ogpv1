@@ -29,7 +29,13 @@ export function TournamentCard({ tournament, className }) {
     return () => clearInterval(id);
   }, []);
 
-  const cd = startDate ? formatCountdown(startDate) : '—:—:—';
+  const pastStart = startDate ? new Date(startDate) <= new Date() : false;
+  const canJoin = status === 'registration' && !pastStart;
+  const cd = startDate
+    ? pastStart && status === 'registration'
+      ? 'REG. CLOSED'
+      : formatCountdown(startDate)
+    : '—:—:—';
   const accent =
     game === 'FreeFire'
       ? 'bg-gradient-to-r from-brand-orange to-amber-500'
@@ -124,10 +130,12 @@ export function TournamentCard({ tournament, className }) {
 
         <div className="mt-4">
           <span className="btn-primary inline-flex w-full items-center justify-center rounded-lg py-2.5 text-center text-sm font-bold uppercase">
-            {status === 'registration'
+            {canJoin
               ? isBr
                 ? 'View / register squad'
                 : 'Join'
+              : status === 'registration' && pastStart
+                ? 'View details'
               : status === 'ongoing'
                 ? 'View bracket & standings'
                 : status === 'completed'

@@ -6,7 +6,7 @@ export function useTournaments(params = {}) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const { game, status, page, limit } = params;
+  const { game, status, joinable, page, limit } = params;
 
   const refetch = useCallback(async (overrides = {}) => {
     setLoading(true);
@@ -15,6 +15,7 @@ export function useTournaments(params = {}) {
       const res = await tournamentApi.getAllTournaments({
         game,
         status,
+        joinable,
         page,
         limit,
         ...overrides,
@@ -26,7 +27,7 @@ export function useTournaments(params = {}) {
     } finally {
       setLoading(false);
     }
-  }, [game, status, page, limit]);
+  }, [game, status, joinable, page, limit]);
 
   useEffect(() => {
     refetch();
