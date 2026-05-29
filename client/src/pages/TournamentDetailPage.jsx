@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { Upload, Trophy } from 'lucide-react';
 import * as tournamentApi from '../api/tournament.api.js';
 import * as matchApi from '../api/match.api.js';
@@ -24,6 +24,7 @@ const statusVariant = {
 
 export function TournamentDetailPage() {
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
   const { isAuthenticated, isOrganizer, isPlayer, user } = useAuth();
   const [tournament, setTournament] = useState(null);
   const [matches, setMatches] = useState([]);
@@ -55,6 +56,33 @@ export function TournamentDetailPage() {
       );
     }
   }, [id]);
+
+  const refetchTournament = useCallback(async () => {
+    const [tRes, mRes] = await Promise.all([
+      tournamentApi.getTournamentById(id),
+      matchApi.getMatchesByTournament(id).catch(() => ({ data: { matches: [] } })),
+    ]);
+    setTournament(tRes.data.tournament);
+    setMatches(mRes.data.matches || []);
+    if (isAuthenticated && isPlayer && tRes.data.tournament?.format === 'battle_royale_squad') {
+      try {
+        const squadRes = await tournamentApi.getMySquadForTournament(id);
+        const code = squadRes.data?.inviteCode;
+        const teamId = squadRes.data?.team?._id;
+        if (code) setCreatedInviteCode(String(code));
+        if (teamId) setCreatedTeamId(String(teamId));
+        setSquadRoster(squadRes.data);
+      } catch {
+        // no squad
+      }
+    }
+    await refetchLeaderboard();
+  }, [id, isAuthenticated, isPlayer, refetchLeaderboard]);
+
+  useEffect(() => {
+    if (searchParams.get('registered') !== '1') return;
+    refetchTournament();
+  }, [searchParams, refetchTournament]);
 
   useEffect(() => {
     let cancelled = false;
@@ -176,18 +204,21 @@ export function TournamentDetailPage() {
 
   const isRegistered = useMemo(() => {
     if (!user?._id || !tournament) return false;
+    if (squadRoster?.isRegisteredInTournament) return true;
     const uid = String(user._id);
     if (isSquadTournament) {
       const teams = tournament.registeredTeams || [];
       return teams.some((team) => {
         if (!team) return false;
+        const teamId = String(team._id || team);
+        if (createdTeamId && teamId === String(createdTeamId)) return true;
         const cap = team.captain?._id || team.captain;
-        if (String(cap) === uid) return true;
+        if (cap != null && String(cap) === uid) return true;
         return (team.members || []).some((m) => String(m._id || m) === uid);
       });
     }
     return tournament.registeredPlayers?.some((p) => String(p._id || p) === uid) ?? false;
-  }, [tournament, user?._id, isSquadTournament]);
+  }, [tournament, user?._id, isSquadTournament, squadRoster?.isRegisteredInTournament, createdTeamId]);
   const isOwner = tournament && user && String(tournament.organizer?._id || tournament.organizer) === String(user._id);
 
   const showActiveMatchPanel =
@@ -301,8 +332,7 @@ export function TournamentDetailPage() {
     try {
       await tournamentApi.registerForTournament(id);
       toast.success('Registered');
-      const { data } = await tournamentApi.getTournamentById(id);
-      setTournament(data.tournament);
+      await refetchTournament();
     } catch (e) {
       toast.error(e.response?.data?.message || 'Register failed');
     } finally {
@@ -446,6 +476,9 @@ export function TournamentDetailPage() {
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="font-display text-3xl font-black text-brand-light md:text-4xl">{tournament.name}</h1>
             <Badge variant={statusVariant[tournament.status] || 'gray'}>{tournament.status}</Badge>
+            {isAuthenticated && isPlayer && isRegistered ? (
+              <Badge variant="green">You&apos;re registered</Badge>
+            ) : null}
           </div>
           <p className="mt-1 text-brand-orange">{tournament.game}</p>
           <p className="mt-2 text-sm text-brand-muted">
@@ -482,6 +515,15 @@ export function TournamentDetailPage() {
           ) : null}
         </div>
       </div>
+
+      {isAuthenticated && isPlayer && isRegistered ? (
+        <div className="mt-6 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3">
+          <p className="text-sm font-medium text-emerald-300">You&apos;re registered for this tournament.</p>
+          <p className="mt-1 text-xs text-brand-muted">
+            The &quot;registration&quot; badge above means sign-ups are still open for everyone — not that you still need to register.
+          </p>
+        </div>
+      ) : null}
 
       <Modal
         open={payModalOpen && tournament.status === 'registration'}

@@ -251,7 +251,7 @@ async function getMyPlayerPortal(req, res) {
     const teams = await Team.find({
       $or: [{ captain: userId }, { members: userId }],
     })
-      .populate('tournament', 'name game status startDate entryFee format squadSize')
+      .populate('tournament', 'name game status startDate entryFee format squadSize registeredTeams')
       .populate('captain', 'username profilePicture')
       .populate('members', 'username profilePicture')
       .sort({ createdAt: -1 });

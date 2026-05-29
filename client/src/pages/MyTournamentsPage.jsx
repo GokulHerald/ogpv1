@@ -13,9 +13,61 @@ const statusVariant = {
   cancelled: 'red',
 };
 
+function SquadCard({ s }) {
+  const t = s.tournament;
+  const tid = t?._id;
+  return (
+    <div key={s.team?._id} className="rounded-xl border border-brand-border/60 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <p className="font-semibold text-brand-light">{t?.name || 'Tournament'}</p>
+          <p className="mt-1 text-xs text-brand-muted">
+            {t?.game || '—'} · Entry ₹{t?.entryFee ?? 0}
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Badge variant={s.isRegisteredInTournament ? 'green' : 'gray'}>
+              {s.isRegisteredInTournament ? 'Registered' : 'Not registered'}
+            </Badge>
+            <Badge variant={statusVariant[t?.status] || 'gray'}>{t?.status || '—'}</Badge>
+            <Badge variant={s.isFullTeam ? 'green' : 'orange'}>
+              {s.isFullTeam ? 'Full squad' : `Slots left ${s.membersNeeded ?? 0}`}
+            </Badge>
+            {t?.entryFee > 0 ? (
+              <Badge variant={s.hasPaid ? 'green' : 'orange'}>{s.hasPaid ? 'Paid' : 'Unpaid'}</Badge>
+            ) : null}
+          </div>
+        </div>
+        <div className="text-right text-xs text-brand-muted">
+          <div>
+            Invite: <span className="font-mono text-brand-light">{s.inviteCode || '—'}</span>
+          </div>
+          <div>
+            Captain: <span className="text-brand-light">{s.team?.captain?.username || '—'}</span>
+          </div>
+        </div>
+      </div>
+      {tid ? (
+        <div className="mt-3">
+          <Link
+            to={`/tournaments/${tid}${s.isRegisteredInTournament ? '?registered=1' : ''}`}
+            className="text-xs font-semibold text-brand-orange hover:underline"
+          >
+            View tournament →
+          </Link>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function MyTournamentsPage() {
   const [loading, setLoading] = useState(true);
   const [portal, setPortal] = useState(null);
+
+  const loadPortal = async () => {
+    const res = await tournamentApi.getMyPlayerPortal();
+    setPortal(res.data);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -38,6 +90,14 @@ export function MyTournamentsPage() {
 
   const solo = useMemo(() => portal?.soloTournaments || [], [portal]);
   const squads = useMemo(() => portal?.squads || [], [portal]);
+  const registeredSquads = useMemo(
+    () => squads.filter((s) => s.isRegisteredInTournament),
+    [squads]
+  );
+  const pendingSquads = useMemo(
+    () => squads.filter((s) => !s.isRegisteredInTournament),
+    [squads]
+  );
 
   const currentSolo = solo.filter((t) => t.status !== 'completed' && t.status !== 'cancelled');
   const pastSolo = solo.filter((t) => t.status === 'completed' || t.status === 'cancelled');
@@ -62,8 +122,7 @@ export function MyTournamentsPage() {
           onClick={async () => {
             try {
               setLoading(true);
-              const res = await tournamentApi.getMyPlayerPortal();
-              setPortal(res.data);
+              await loadPortal();
               toast.success('Updated');
             } catch (e) {
               toast.error(e.response?.data?.message || 'Failed to refresh');
@@ -85,45 +144,32 @@ export function MyTournamentsPage() {
           {!squads.length ? (
             <p className="mt-3 text-sm text-brand-muted">No squads yet.</p>
           ) : (
-            <div className="mt-4 space-y-3">
-              {squads.map((s) => {
-                const t = s.tournament;
-                const tid = t?._id;
-                return (
-                  <div key={s.team?._id} className="rounded-xl border border-brand-border/60 p-4">
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div>
-                        <p className="font-semibold text-brand-light">{t?.name || 'Tournament'}</p>
-                        <p className="mt-1 text-xs text-brand-muted">
-                          {t?.game || '—'} · Entry ₹{t?.entryFee ?? 0}
-                        </p>
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          <Badge variant={statusVariant[t?.status] || 'gray'}>{t?.status || '—'}</Badge>
-                          <Badge variant={s.isFullTeam ? 'green' : 'orange'}>
-                            {s.isFullTeam ? 'Full squad' : `Slots left ${s.membersNeeded ?? 0}`}
-                          </Badge>
-                          <Badge variant={s.hasPaid ? 'green' : 'orange'}>{s.hasPaid ? 'Paid' : 'Unpaid'}</Badge>
-                        </div>
-                      </div>
-                      <div className="text-right text-xs text-brand-muted">
-                        <div>
-                          Invite: <span className="font-mono text-brand-light">{s.inviteCode || '—'}</span>
-                        </div>
-                        <div>
-                          Captain: <span className="text-brand-light">{s.team?.captain?.username || '—'}</span>
-                        </div>
-                      </div>
-                    </div>
-                    {tid ? (
-                      <div className="mt-3">
-                        <Link to={`/tournaments/${tid}`} className="text-xs font-semibold text-brand-orange hover:underline">
-                          View tournament →
-                        </Link>
-                      </div>
-                    ) : null}
+            <div className="mt-4 space-y-6">
+              <div>
+                <p className="text-xs uppercase tracking-wider text-emerald-400/90">Registered</p>
+                {!registeredSquads.length ? (
+                  <p className="mt-2 text-sm text-brand-muted">No registered squad tournaments yet.</p>
+                ) : (
+                  <div className="mt-3 space-y-3">
+                    {registeredSquads.map((s) => (
+                      <SquadCard key={s.team?._id} s={s} />
+                    ))}
                   </div>
-                );
-              })}
+                )}
+              </div>
+              {pendingSquads.length ? (
+                <div>
+                  <p className="text-xs uppercase tracking-wider text-brand-muted">In progress</p>
+                  <p className="mt-1 text-xs text-brand-muted">
+                    Fill your squad and pay the entry fee (if required) to complete registration.
+                  </p>
+                  <div className="mt-3 space-y-3">
+                    {pendingSquads.map((s) => (
+                      <SquadCard key={s.team?._id} s={s} />
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </div>
           )}
         </div>
@@ -137,20 +183,28 @@ export function MyTournamentsPage() {
           ) : (
             <div className="mt-4 space-y-6">
               <div>
-                <p className="text-xs uppercase tracking-wider text-brand-muted">Current</p>
+                <p className="text-xs uppercase tracking-wider text-emerald-400/90">Registered · current</p>
                 {!currentSolo.length ? (
                   <p className="mt-2 text-sm text-brand-muted">None.</p>
                 ) : (
                   <ul className="mt-2 space-y-2 text-sm">
                     {currentSolo.map((t) => (
-                      <li key={t._id} className="flex items-center justify-between gap-3 rounded-lg border border-brand-border/60 p-3">
+                      <li
+                        key={t._id}
+                        className="flex items-center justify-between gap-3 rounded-lg border border-brand-border/60 p-3"
+                      >
                         <div>
                           <p className="font-semibold text-brand-light">{t.name}</p>
-                          <p className="text-xs text-brand-muted">
-                            {t.game} · <Badge variant={statusVariant[t.status] || 'gray'}>{t.status}</Badge>
+                          <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-brand-muted">
+                            {t.game}
+                            <Badge variant="green">Registered</Badge>
+                            <Badge variant={statusVariant[t.status] || 'gray'}>{t.status}</Badge>
                           </p>
                         </div>
-                        <Link to={`/tournaments/${t._id}`} className="text-xs font-semibold text-brand-orange hover:underline">
+                        <Link
+                          to={`/tournaments/${t._id}?registered=1`}
+                          className="text-xs font-semibold text-brand-orange hover:underline"
+                        >
                           Open
                         </Link>
                       </li>
@@ -160,20 +214,28 @@ export function MyTournamentsPage() {
               </div>
 
               <div>
-                <p className="text-xs uppercase tracking-wider text-brand-muted">Past</p>
+                <p className="text-xs uppercase tracking-wider text-brand-muted">Registered · past</p>
                 {!pastSolo.length ? (
                   <p className="mt-2 text-sm text-brand-muted">None.</p>
                 ) : (
                   <ul className="mt-2 space-y-2 text-sm">
                     {pastSolo.map((t) => (
-                      <li key={t._id} className="flex items-center justify-between gap-3 rounded-lg border border-brand-border/60 p-3">
+                      <li
+                        key={t._id}
+                        className="flex items-center justify-between gap-3 rounded-lg border border-brand-border/60 p-3"
+                      >
                         <div>
                           <p className="font-semibold text-brand-light">{t.name}</p>
-                          <p className="text-xs text-brand-muted">
-                            {t.game} · <Badge variant={statusVariant[t.status] || 'gray'}>{t.status}</Badge>
+                          <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-brand-muted">
+                            {t.game}
+                            <Badge variant="green">Registered</Badge>
+                            <Badge variant={statusVariant[t.status] || 'gray'}>{t.status}</Badge>
                           </p>
                         </div>
-                        <Link to={`/tournaments/${t._id}`} className="text-xs font-semibold text-brand-orange hover:underline">
+                        <Link
+                          to={`/tournaments/${t._id}?registered=1`}
+                          className="text-xs font-semibold text-brand-orange hover:underline"
+                        >
                           View
                         </Link>
                       </li>
@@ -188,4 +250,3 @@ export function MyTournamentsPage() {
     </div>
   );
 }
-

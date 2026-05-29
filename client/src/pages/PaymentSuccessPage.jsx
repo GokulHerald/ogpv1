@@ -10,6 +10,9 @@ function useQuery() {
 export function PaymentSuccessPage() {
   const q = useQuery();
   const tournamentId = q.get('tournament');
+  const tournamentHref = tournamentId
+    ? `/tournaments/${tournamentId}?registered=1`
+    : null;
 
   return (
     <div className="mx-auto flex min-h-[55vh] max-w-3xl flex-col justify-center px-4 py-16">
@@ -18,11 +21,12 @@ export function PaymentSuccessPage() {
           Payment successful
         </h1>
         <p className="mt-3 text-sm leading-relaxed text-brand-muted">
-          Your payment was verified. If this tournament requires an entry fee, your registration is now confirmed.
+          Your payment was verified. Your registration is confirmed — check My tournaments or open the
+          tournament page to see your registered status.
         </p>
         <div className="mt-6 flex flex-wrap gap-3">
-          {tournamentId ? (
-            <Link to={`/tournaments/${tournamentId}`}>
+          {tournamentHref ? (
+            <Link to={tournamentHref}>
               <Button variant="primary">Back to tournament</Button>
             </Link>
           ) : (
@@ -30,12 +34,11 @@ export function PaymentSuccessPage() {
               <Button variant="primary">Browse tournaments</Button>
             </Link>
           )}
-          <Link to="/profile">
-            <Button variant="secondary">View profile</Button>
+          <Link to="/my-tournaments">
+            <Button variant="secondary">My tournaments</Button>
           </Link>
         </div>
       </div>
     </div>
   );
 }
-
