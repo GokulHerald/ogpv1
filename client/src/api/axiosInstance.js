@@ -6,9 +6,15 @@ import axios from 'axios';
  * return 404 — they must go to `/api/v1/auth/login`.
  */
 function resolveApiBaseURL() {
-  const fallback = 'http://localhost:5001/api/v1';
   const raw = import.meta.env.VITE_API_URL?.trim();
-  if (!raw) return fallback;
+  if (!raw) {
+    if (import.meta.env.PROD) {
+      throw new Error(
+        'VITE_API_URL is not set. Add it in the Vercel **client** project env (e.g. https://your-api.vercel.app/api/v1) and redeploy.'
+      );
+    }
+    return 'http://localhost:5001/api/v1';
+  }
   try {
     const u = new URL(raw);
     const path = u.pathname.replace(/\/+$/, '');

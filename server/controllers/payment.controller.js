@@ -6,6 +6,7 @@ const Wallet = require('../models/Wallet');
 const Tournament = require('../models/Tournament');
 const Leaderboard = require('../models/Leaderboard');
 const Team = require('../models/Team');
+const { assertPaymentUrls } = require('../utils/appUrls');
 
 function generateTransactionUuid() {
   return `TXN-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
@@ -198,7 +199,7 @@ async function initiateEsewaPayment(req, res) {
 
     const merchantId = process.env.ESEWA_MERCHANT_ID;
     const secret = process.env.ESEWA_SECRET;
-    const serverUrl = process.env.SERVER_URL;
+    const { serverUrl } = assertPaymentUrls();
 
     const message = `total_amount=${amount},transaction_uuid=${payment.transactionUuid},product_code=${merchantId}`;
     const signature = crypto.createHmac('sha256', secret).update(message).digest('base64');
@@ -230,7 +231,12 @@ async function initiateEsewaPayment(req, res) {
 async function esewaSuccess(req, res) {
   try {
     const { data } = req.query;
-    const clientUrl = process.env.CLIENT_URL;
+    let clientUrl;
+    try {
+      clientUrl = assertPaymentUrls().clientUrl;
+    } catch (urlErr) {
+      return res.status(500).json({ message: urlErr.message });
+    }
 
     if (!data) {
       return res.redirect(`${clientUrl}/payment/failed`);
@@ -289,7 +295,12 @@ async function esewaSuccess(req, res) {
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error('esewaSuccess error', err);
-    return res.redirect(`${process.env.CLIENT_URL}/payment/failed`);
+    try {
+      const failUrl = assertPaymentUrls().clientUrl;
+      return res.redirect(`${failUrl}/payment/failed`);
+    } catch {
+      return res.status(500).json({ message: 'Payment redirect URL is not configured' });
+    }
   }
 }
 
@@ -298,7 +309,7 @@ async function esewaSuccess(req, res) {
 async function esewaFailure(req, res) {
   try {
     const { data } = req.query;
-    const clientUrl = process.env.CLIENT_URL;
+    const clientUrl = assertPaymentUrls().clientUrl;
 
     if (data) {
       try {
@@ -322,7 +333,11 @@ async function esewaFailure(req, res) {
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error('esewaFailure error', err);
-    return res.redirect(`${process.env.CLIENT_URL}/payment/failed`);
+    try {
+      return res.redirect(`${assertPaymentUrls().clientUrl}/payment/failed`);
+    } catch {
+      return res.status(500).json({ message: 'Payment redirect URL is not configured' });
+    }
   }
 }
 
@@ -395,8 +410,7 @@ async function initiateKhaltiPayment(req, res) {
       metadata,
     });
 
-    const serverUrl = process.env.SERVER_URL;
-    const clientUrl = process.env.CLIENT_URL;
+    const { serverUrl, clientUrl } = assertPaymentUrls();
     const secretKey = process.env.KHALTI_SECRET_KEY;
 
     const khaltiPhone = normalizeNepalMobileForKhalti(req.user?.phoneNumber);
@@ -449,7 +463,7 @@ async function initiateKhaltiPayment(req, res) {
 async function khaltiCallback(req, res) {
   try {
     const { pidx, status, purchase_order_id } = req.query;
-    const clientUrl = process.env.CLIENT_URL;
+    const clientUrl = assertPaymentUrls().clientUrl;
 
     if (!pidx || !purchase_order_id) {
       return res.redirect(`${clientUrl}/payment/failed`);
@@ -508,7 +522,11 @@ async function khaltiCallback(req, res) {
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error('khaltiCallback error', err);
-    return res.redirect(`${process.env.CLIENT_URL}/payment/failed`);
+    try {
+      return res.redirect(`${assertPaymentUrls().clientUrl}/payment/failed`);
+    } catch {
+      return res.status(500).json({ message: 'Payment redirect URL is not configured' });
+    }
   }
 }
 

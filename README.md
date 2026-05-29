@@ -31,3 +31,15 @@ If the browser shows `ERR_CONNECTION_REFUSED` for `:5001`, the API is not starte
 
 **`VITE_API_URL`:** Use the full API prefix, e.g. `http://localhost:5001/api/v1`. If you set only `http://localhost:5001`, the client will automatically append `/api/v1`. A 404 on `POST …/auth/login` (missing `api/v1` in the path) means the base URL was wrong.
 
+## Vercel (two projects — do not mix env vars)
+
+| Variable | Set on | Example |
+|----------|--------|---------|
+| `VITE_API_URL` | **Client** project (Production) | `https://your-api.vercel.app/api/v1` |
+| `CLIENT_URL` | **Server/API** project (Production) | `https://ogpv1.vercel.app` |
+| `SERVER_URL` | **Server/API** project (Production) | `https://your-api.vercel.app` |
+
+After payment, the API redirects to `CLIENT_URL/payment/success`. If you land on `localhost`, the **server** deployment still has a dev `CLIENT_URL`, or the live site is calling your **local** API (`npm start` on your laptop).
+
+Redeploy **both** projects after changing env vars. `VITE_*` is baked in at **build** time on the client.
+
