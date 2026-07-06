@@ -5,6 +5,7 @@ const Bracket = require('../models/Bracket');
 const Match = require('../models/Match');
 const Leaderboard = require('../models/Leaderboard');
 const { generateBracket } = require('../utils/bracket.utils');
+const { formSquadsFromPool, splitIntoLobbies } = require('../utils/grouping.utils');
 const crypto = require('crypto');
 const mongoose = require('mongoose');
 
@@ -81,6 +82,9 @@ async function createTournament(req, res) {
       format = 'single-elimination',
       maxTeams,
       squadSize,
+      scoring,
+      autoGroup,
+      lobbySize,
     } = req.body;
 
     const payload = {
@@ -109,6 +113,15 @@ async function createTournament(req, res) {
       payload.maxTeams = mt;
       payload.squadSize = ss;
       payload.maxPlayers = mt * ss;
+
+      payload.autoGroup = Boolean(autoGroup);
+      if (payload.autoGroup && lobbySize !== undefined && lobbySize !== null && lobbySize !== '') {
+        const ls = Number(lobbySize);
+        if (!Number.isFinite(ls) || ls < 2 || ls > mt) {
+          return res.status(400).json({ message: 'Teams per lobby must be between 2 and maxTeams' });
+        }
+        payload.lobbySize = ls;
+      }
     } else {
       if (![8, 16, 32].includes(Number(maxPlayers))) {
         return res.status(400).json({ message: 'maxPlayers must be 8, 16, or 32' });
@@ -116,10 +129,25 @@ async function createTournament(req, res) {
       payload.maxPlayers = Number(maxPlayers);
     }
 
+    // Optional organizer-set scoring; fall back to schema defaults (10/2/5).
+    const scoringConfig = {};
+    if (scoring && typeof scoring === 'object') {
+      for (const key of ['winPoints', 'killPoints', 'placementBonus']) {
+        if (scoring[key] !== undefined && scoring[key] !== '') {
+          const n = Number(scoring[key]);
+          if (!Number.isFinite(n) || n < 0) {
+            return res.status(400).json({ message: `${key} must be a non-negative number` });
+          }
+          scoringConfig[key] = n;
+        }
+      }
+    }
+
     const tournament = await Tournament.create(payload);
 
     const leaderboard = await Leaderboard.create({
       tournament: tournament._id,
+      ...(Object.keys(scoringConfig).length ? { scoringConfig } : {}),
     });
 
     return res.status(201).json({ tournament, leaderboard });
@@ -159,6 +187,7 @@ async function getAllTournaments(req, res) {
             { path: 'members', select: 'username firstName lastName profilePicture' },
           ],
         })
+        .populate('soloPool', 'username firstName lastName profilePicture')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit),
@@ -193,7 +222,8 @@ async function getTournamentById(req, res) {
         ],
       })
       .populate('bracket')
-      .populate('winnerTeam', 'name captain');
+      .populate('winnerTeam', 'name captain')
+      .populate('soloPool', 'username firstName lastName profilePicture');
 
     if (!tournament) {
       return res.status(404).json({ message: 'Tournament not found' });
@@ -588,6 +618,59 @@ async function registerForTournament(req, res) {
   }
 }
 
+async function joinSoloPool(req, res) {
+  try {
+    const { id } = req.params;
+    const tournament = await Tournament.findById(id);
+    if (!tournament) return res.status(404).json({ message: 'Tournament not found' });
+
+    if (tournament.format !== 'battle_royale_squad' || !tournament.autoGroup) {
+      return res.status(400).json({ message: 'This tournament does not support solo auto-grouping' });
+    }
+    if (tournament.status !== 'registration') {
+      return res.status(400).json({ message: 'Registration is closed for this tournament' });
+    }
+    if (req.user.role === 'organizer') {
+      return res.status(400).json({ message: 'Organizers cannot register as players' });
+    }
+
+    const userId = String(req.user._id);
+    const inPool = (tournament.soloPool || []).some((p) => String(p) === userId);
+    if (inPool) {
+      return res.status(400).json({ message: 'You are already in the solo pool' });
+    }
+    const used = await getUsedPlayerIdsForTournament(tournament._id);
+    if (used.has(userId)) {
+      return res.status(400).json({ message: 'You are already in a squad for this tournament' });
+    }
+
+    const currentCount = used.size + (tournament.soloPool || []).length;
+    if (currentCount >= tournament.maxPlayers) {
+      return res.status(400).json({ message: 'Tournament is full' });
+    }
+
+    // Entry fee is paid per-player: send them through payment first (mode: solo).
+    if (tournament.entryFee > 0) {
+      return res.status(400).json({
+        message: 'This tournament requires payment',
+        requiresPayment: true,
+        entryFee: tournament.entryFee,
+        mode: 'solo',
+      });
+    }
+
+    tournament.soloPool.push(req.user._id);
+    await tournament.save();
+
+    return res.status(200).json({
+      message: 'Joined solo pool. You will be auto-grouped into a squad when the tournament starts.',
+      soloPoolCount: tournament.soloPool.length,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message || 'Failed to join solo pool' });
+  }
+}
+
 async function startTournament(req, res) {
   try {
     const { id } = req.params;
@@ -610,32 +693,71 @@ async function startTournament(req, res) {
     }
 
     if (tournament.format === 'battle_royale_squad') {
+      let leftoverCount = 0;
+
+      // Auto-group: form squads from the (already-paid) solo pool.
+      if (tournament.autoGroup && (tournament.soloPool || []).length) {
+        const pool = tournament.soloPool.map((p) => String(p));
+        const { squads, leftover } = formSquadsFromPool(pool, tournament.squadSize || 4);
+
+        for (const squad of squads) {
+          // eslint-disable-next-line no-await-in-loop
+          const inviteCode = await generateUniqueInviteCode();
+          // eslint-disable-next-line no-await-in-loop
+          const team = await Team.create({
+            tournament: tournament._id,
+            name: '',
+            captain: squad[0],
+            members: squad.slice(1),
+            inviteCode,
+            inviteCodeCreatedAt: new Date(),
+          });
+          tournament.registeredTeams.push(team._id);
+          // eslint-disable-next-line no-await-in-loop
+          await addSquadPlayersToLeaderboard(team, tournament._id);
+        }
+
+        // Keep only the ungrouped leftover (they paid; refund is manual).
+        tournament.soloPool = leftover.map((pid) => new mongoose.Types.ObjectId(pid));
+        leftoverCount = leftover.length;
+        await tournament.save();
+      }
+
       const teamCount = tournament.registeredTeams.length;
       if (teamCount < 2) {
         return res.status(400).json({ message: 'Need at least 2 squads to start' });
       }
 
       const teams = await Team.find({ _id: { $in: tournament.registeredTeams } });
+      const teamById = new Map(teams.map((t) => [String(t._id), t]));
 
-      const brTeams = teams.map((t) => ({
-        team: t._id,
-        players: [t.captain, ...(t.members || [])],
-      }));
+      // Split teams into one or more battle-royale lobbies.
+      const teamIds = teams.map((t) => String(t._id));
+      const lobbies = splitIntoLobbies(teamIds, tournament.lobbySize);
 
-      const lobbyMatch = await Match.create({
-        tournament: tournament._id,
-        kind: 'br_lobby',
-        round: 1,
-        matchNumber: 1,
-        brTeams,
-        status: 'pending',
-        proof: { squadStreams: [] },
-      });
+      const createdMatches = [];
+      for (let i = 0; i < lobbies.length; i += 1) {
+        const brTeams = lobbies[i].map((tid) => {
+          const t = teamById.get(tid);
+          return { team: t._id, players: [t.captain, ...(t.members || [])] };
+        });
+        // eslint-disable-next-line no-await-in-loop
+        const lobbyMatch = await Match.create({
+          tournament: tournament._id,
+          kind: 'br_lobby',
+          round: 1,
+          matchNumber: i + 1,
+          brTeams,
+          status: 'pending',
+          proof: { squadStreams: [] },
+        });
+        createdMatches.push(lobbyMatch);
+      }
 
       const bracket = await Bracket.create({
         tournament: tournament._id,
         totalRounds: 1,
-        matches: [lobbyMatch._id],
+        matches: createdMatches.map((m) => m._id),
         currentRound: 1,
         isComplete: false,
         champion: null,
@@ -647,9 +769,14 @@ async function startTournament(req, res) {
       await tournament.save();
 
       return res.status(200).json({
-        message: 'Tournament started',
+        message:
+          createdMatches.length > 1
+            ? `Tournament started with ${createdMatches.length} lobbies`
+            : 'Tournament started',
         bracket,
-        match: lobbyMatch,
+        matches: createdMatches,
+        lobbies: createdMatches.length,
+        ungroupedPlayers: leftoverCount,
       });
     }
 
@@ -714,24 +841,46 @@ async function setBrWinner(req, res) {
       return res.status(404).json({ message: 'Team not found in this tournament' });
     }
 
-    const lobby = await Match.findOne({
-      tournament: tournament._id,
-      kind: 'br_lobby',
-    });
-    if (!lobby) {
+    const lobbyMatches = await Match.find({ tournament: tournament._id, kind: 'br_lobby' });
+    if (!lobbyMatches.length) {
       return res.status(404).json({ message: 'Lobby match not found' });
+    }
+
+    // With multiple lobbies the organizer must say which lobby this winner is for.
+    const { matchId } = req.body;
+    let lobby;
+    if (matchId) {
+      lobby = lobbyMatches.find((m) => String(m._id) === String(matchId));
+      if (!lobby) return res.status(404).json({ message: 'Lobby not found for this tournament' });
+    } else if (lobbyMatches.length === 1) {
+      [lobby] = lobbyMatches;
+    } else {
+      return res
+        .status(400)
+        .json({ message: 'matchId is required to pick which lobby this winner belongs to' });
+    }
+
+    const teamInLobby = (lobby.brTeams || []).some((slot) => String(slot.team) === String(team._id));
+    if (!teamInLobby) {
+      return res.status(400).json({ message: 'Selected team is not in this lobby' });
+    }
+    if (lobby.status === 'completed') {
+      return res.status(400).json({ message: 'This lobby winner is already set' });
     }
 
     lobby.winnerTeam = team._id;
     lobby.status = 'completed';
     await lobby.save();
 
-    tournament.status = 'completed';
-    tournament.winnerTeam = team._id;
+    const totalLobbies = lobbyMatches.length;
+    const allCompleted = lobbyMatches.every((m) => m.status === 'completed');
+
+    if (allCompleted) tournament.status = 'completed';
+    if (totalLobbies === 1) tournament.winnerTeam = team._id;
     await tournament.save();
 
     const bracket = await Bracket.findOne({ tournament: tournament._id });
-    if (bracket) {
+    if (bracket && allCompleted) {
       bracket.isComplete = true;
       bracket.championTeam = team._id;
       bracket.champion = team.captain;
@@ -747,7 +896,8 @@ async function setBrWinner(req, res) {
       wallet = await Wallet.create({ user: captainId });
     }
 
-    const prizeAmount = Number(tournament.prizePool) || 0;
+    // Prize pool is shared evenly across lobbies (each lobby crowns one winner).
+    const prizeAmount = Math.floor((Number(tournament.prizePool) || 0) / totalLobbies);
     if (prizeAmount > 0) {
       wallet.balance += prizeAmount;
       wallet.totalEarned += prizeAmount;
@@ -766,6 +916,7 @@ async function setBrWinner(req, res) {
         metadata: {
           note: 'Prize credited to captain wallet; squad distribution is manual.',
           teamId: String(team._id),
+          lobby: lobby.matchNumber,
         },
       });
     }
@@ -783,10 +934,13 @@ async function setBrWinner(req, res) {
     }
 
     return res.status(200).json({
-      message: 'Winner recorded; prize credited to captain wallet',
+      message: allCompleted
+        ? 'Winner recorded; all lobbies complete.'
+        : 'Lobby winner recorded; other lobbies still pending.',
       tournament,
       team,
       wallet,
+      allLobbiesComplete: allCompleted,
     });
   } catch (error) {
     return res.status(500).json({ message: error.message || 'Failed to set BR winner' });
@@ -1049,6 +1203,7 @@ module.exports = {
   joinSquadByInviteCode,
   getSquadRoster,
   getMySquadForTournament,
+  joinSoloPool,
   startTournament,
   setBrWinner,
   getAdminPlayerStats,

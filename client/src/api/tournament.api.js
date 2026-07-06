@@ -20,6 +20,10 @@ export function registerForTournament(id) {
   return api.post(`/tournaments/${id}/register`);
 }
 
+export function joinSoloPool(id) {
+  return api.post(`/tournaments/${id}/join-solo`);
+}
+
 export function startTournament(id) {
   return api.post(`/tournaments/${id}/start`);
 }
@@ -40,8 +44,8 @@ export function getSquadRoster(tournamentId, inviteCode) {
   return api.get(`/tournaments/${tournamentId}/squads/roster`, { params: { inviteCode } });
 }
 
-export function setBrWinner(tournamentId, teamId) {
-  return api.post(`/tournaments/${tournamentId}/br-winner`, { teamId });
+export function setBrWinner(tournamentId, teamId, matchId) {
+  return api.post(`/tournaments/${tournamentId}/br-winner`, { teamId, matchId });
 }
 
 export function getAdminPlayerStats(tournamentId) {

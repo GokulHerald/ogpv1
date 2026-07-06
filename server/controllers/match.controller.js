@@ -445,16 +445,23 @@ async function setBrStats(req, res) {
 
     await applyBrSquadStatsToLeaderboard(match.tournament, rows);
 
-    tournament.status = 'completed';
-    tournament.winnerTeam = winnerTeam._id;
+    // Multi-lobby aware: only finish the tournament once every lobby is done.
+    const lobbyMatches = await Match.find({ tournament: tournament._id, kind: 'br_lobby' });
+    const totalLobbies = lobbyMatches.length || 1;
+    const allCompleted = lobbyMatches.every((m) => m.status === 'completed');
+
+    if (allCompleted) tournament.status = 'completed';
+    if (totalLobbies === 1) tournament.winnerTeam = winnerTeam._id;
 
     const bracket = await Bracket.findOne({ tournament: tournament._id });
     if (bracket) {
-      bracket.isComplete = true;
-      bracket.championTeam = winnerTeam._id;
-      bracket.champion = winnerTeam.captain;
       tournament.bracket = bracket._id;
-      await bracket.save();
+      if (allCompleted) {
+        bracket.isComplete = true;
+        bracket.championTeam = winnerTeam._id;
+        bracket.champion = winnerTeam.captain;
+        await bracket.save();
+      }
     }
 
     await tournament.save();
@@ -469,7 +476,8 @@ async function setBrStats(req, res) {
       wallet = await Wallet.create({ user: captainId });
     }
 
-    const prizeAmount = Number(tournament.prizePool) || 0;
+    // Prize pool is shared evenly across lobbies (each lobby crowns one winner).
+    const prizeAmount = Math.floor((Number(tournament.prizePool) || 0) / totalLobbies);
     if (prizeAmount > 0) {
       wallet.balance += prizeAmount;
       wallet.totalEarned += prizeAmount;
@@ -489,6 +497,7 @@ async function setBrStats(req, res) {
           note: 'Prize credited to captain wallet; squad distribution is manual.',
           teamId: String(winnerTeam._id),
           source: 'br-stats',
+          lobby: match.matchNumber,
         },
       });
     }

@@ -1,24 +1,35 @@
 import clsx from 'clsx';
 import { EmptyState } from '../ui/EmptyState.jsx';
 import { GitBranch } from 'lucide-react';
-import { formatPlayerDisplayName } from '../../utils/playerDisplay.js';
+import { formatPlayerDisplayName, playerInitials } from '../../utils/playerDisplay.js';
 
 function pid(u) {
   if (!u) return null;
   return String(u._id || u);
 }
 
-function BracketMatchCard({ match }) {
+function roundTitle(roundNum, totalRounds) {
+  if (totalRounds <= 1) return 'Final';
+  if (roundNum === totalRounds) return 'Final';
+  if (roundNum === totalRounds - 1) return 'Semi-final';
+  if (roundNum === totalRounds - 2) return 'Quarter-final';
+  return `Round ${roundNum}`;
+}
+
+function BracketMatchCard({ match, currentUserId, isHighlighted }) {
   if (!match) return null;
 
   if (match.kind === 'br_lobby') {
     const slots = match.brTeams || [];
     return (
-      <div className="relative w-[260px] shrink-0 rounded-xl border border-brand-border bg-[#0F0F0F] p-3">
+      <div
+        className={clsx(
+          'relative w-[260px] shrink-0 rounded-xl border bg-[#0F0F0F] p-3',
+          isHighlighted ? 'border-violet-500/50 ring-1 ring-violet-500/30' : 'border-brand-border'
+        )}
+      >
         <div className="mb-2 flex items-center justify-between gap-2">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-brand-muted">
-            BR lobby
-          </span>
+          <span className="text-[10px] font-bold uppercase tracking-wider text-brand-muted">BR lobby</span>
           {match.status === 'live' ? (
             <span className="flex items-center gap-1 text-[10px] font-bold uppercase text-green-400">
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-green-400" />
@@ -50,43 +61,66 @@ function BracketMatchCard({ match }) {
   const w = winner ? pid(winner) : null;
   const p1 = pid(player1);
   const p2 = pid(player2);
+  const uid = currentUserId ? String(currentUserId) : null;
+  const p1You = uid && p1 && uid === p1;
+  const p2You = uid && p2 && uid === p2;
   const p1Win = w && p1 && w === p1;
   const p2Win = w && p2 && w === p2;
 
-  const Row = ({ userDoc, win, lose }) => {
-    const name = formatPlayerDisplayName(userDoc);
-    const initial = name.slice(0, 1).toUpperCase();
+  const Row = ({ userDoc, win, lose, isYou, slot }) => {
+    const pending = !userDoc;
+    const name = pending ? 'TBD' : formatPlayerDisplayName(userDoc);
+    const initial = pending ? '?' : playerInitials(userDoc);
+
     return (
       <div
         className={clsx(
-          'flex items-center gap-3 rounded-lg border border-brand-border bg-brand-card px-3 py-2.5',
-          win && 'border-l-4 border-l-brand-red bg-brand-subtle/40',
-          lose && 'opacity-50'
+          'flex items-center gap-2 rounded-lg border px-2.5 py-2',
+          isYou && 'border-brand-orange/50 bg-brand-orange/10',
+          !isYou && !pending && 'border-brand-border bg-brand-card',
+          pending && 'border-dashed border-brand-border/70 bg-brand-subtle/15',
+          win && 'border-l-[3px] border-l-emerald-500',
+          lose && 'opacity-45'
         )}
       >
         <div
           className={clsx(
-            'flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white',
-            win ? 'bg-brand-red' : 'bg-brand-border'
+            'flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold',
+            isYou ? 'bg-brand-orange text-white' : pending ? 'bg-brand-border text-brand-muted' : 'bg-brand-red text-white'
           )}
         >
           {initial}
         </div>
-        <span
-          className={clsx(
-            'min-w-0 flex-1 truncate font-medium',
-            win ? 'font-bold text-brand-light' : 'text-brand-muted',
-            lose && 'line-through'
+        <div className="min-w-0 flex-1">
+          {isYou ? (
+            <span className="text-[9px] font-bold uppercase tracking-wider text-brand-orange">You</span>
+          ) : (
+            <span className="text-[9px] font-bold uppercase tracking-wider text-brand-muted">{slot}</span>
           )}
-        >
-          {name}
-        </span>
+          <p
+            className={clsx(
+              'truncate text-sm font-semibold',
+              pending ? 'text-brand-muted' : 'text-brand-light',
+              win && 'text-emerald-300',
+              lose && 'line-through'
+            )}
+          >
+            {name}
+          </p>
+        </div>
       </div>
     );
   };
 
   return (
-    <div className="relative w-[220px] shrink-0 rounded-xl border border-brand-border bg-[#0F0F0F] p-3">
+    <div
+      className={clsx(
+        'relative w-[240px] shrink-0 rounded-xl border bg-[#0F0F0F] p-3 transition-shadow',
+        isHighlighted
+          ? 'border-brand-orange/50 shadow-[0_0_24px_rgba(232,57,42,0.15)] ring-1 ring-brand-orange/25'
+          : 'border-brand-border'
+      )}
+    >
       <div className="mb-2 flex items-center justify-between gap-2">
         <span className="text-[10px] font-bold uppercase tracking-wider text-brand-muted">
           M{match.matchNumber}
@@ -98,28 +132,34 @@ function BracketMatchCard({ match }) {
           </span>
         ) : null}
       </div>
-      <div className="space-y-2">
-        <Row userDoc={player1} win={p1Win} lose={Boolean(w && p1 && !p1Win)} />
-        <Row userDoc={player2} win={p2Win} lose={Boolean(w && p2 && !p2Win)} />
+      <div className="space-y-1.5">
+        <Row userDoc={player1} win={p1Win} lose={Boolean(w && p1 && !p1Win)} isYou={p1You} slot="Player 1" />
+        <div className="flex items-center gap-2 py-0.5">
+          <div className="h-px flex-1 bg-brand-border" />
+          <span className="font-display text-[10px] font-black text-brand-red">VS</span>
+          <div className="h-px flex-1 bg-brand-border" />
+        </div>
+        <Row userDoc={player2} win={p2Win} lose={Boolean(w && p2 && !p2Win)} isYou={p2You} slot="Player 2" />
       </div>
     </div>
   );
 }
 
-function SvgBetweenColumns() {
+function SvgBetweenColumns({ matchCount }) {
+  const h = Math.max(120, matchCount * 88);
   return (
-    <div className="flex w-10 shrink-0 items-stretch self-stretch py-10">
+    <div className="flex w-12 shrink-0 items-stretch self-stretch" style={{ minHeight: h }}>
       <svg
-        className="h-full min-h-[100px] w-full text-[#242424]"
+        className="h-full w-full text-[#3a3a3a]"
         preserveAspectRatio="none"
-        viewBox="0 0 40 200"
+        viewBox="0 0 48 200"
         aria-hidden
       >
         <path
-          d="M 0 100 L 20 100 M 20 50 L 40 50 M 20 150 L 40 150 M 20 50 L 20 150"
+          d="M 0 50 L 24 50 L 24 100 L 48 100 M 0 150 L 24 150 L 24 100"
           fill="none"
           stroke="currentColor"
-          strokeWidth="1"
+          strokeWidth="1.5"
           vectorEffect="non-scaling-stroke"
         />
       </svg>
@@ -127,7 +167,7 @@ function SvgBetweenColumns() {
   );
 }
 
-export function BracketView({ matches, className }) {
+export function BracketView({ matches, className, currentUserId, highlightMatchId }) {
   if (!Array.isArray(matches) || matches.length === 0) {
     return (
       <EmptyState
@@ -149,28 +189,40 @@ export function BracketView({ matches, className }) {
     .map(Number)
     .sort((a, b) => a - b);
 
+  const totalRounds = rounds.length ? Math.max(...rounds) : 1;
+
   return (
     <div className={clsx('rounded-xl bg-[#0A0A0A] p-4', className)}>
+      <p className="mb-4 text-center font-display text-xs font-bold uppercase tracking-[0.35em] text-brand-muted">
+        Knockout bracket
+      </p>
       <div className="bracket-scrollbar overflow-x-auto pb-2">
         <div className="flex min-w-min items-stretch">
-          {rounds.map((roundNum, colIdx) => (
-            <div key={roundNum} className="flex items-stretch">
-              {colIdx > 0 ? <SvgBetweenColumns /> : null}
-              <div className="flex min-w-[240px] flex-col px-2">
-                <h3 className="font-display mb-6 text-center text-sm font-bold uppercase tracking-[0.2em] text-brand-muted">
-                  Round {roundNum}
-                </h3>
-                <div className="flex flex-1 flex-col justify-around gap-8">
-                  {byRound[roundNum]
-                    .slice()
-                    .sort((a, b) => (a.matchNumber || 0) - (b.matchNumber || 0))
-                    .map((match) => (
-                      <BracketMatchCard key={match._id} match={match} />
+          {rounds.map((roundNum, colIdx) => {
+            const roundMatches = byRound[roundNum]
+              .slice()
+              .sort((a, b) => (a.matchNumber || 0) - (b.matchNumber || 0));
+            return (
+              <div key={roundNum} className="flex items-stretch">
+                {colIdx > 0 ? <SvgBetweenColumns matchCount={roundMatches.length} /> : null}
+                <div className="flex min-w-[260px] flex-col px-2">
+                  <h3 className="font-display mb-6 text-center text-sm font-bold uppercase tracking-[0.2em] text-brand-light">
+                    {roundTitle(roundNum, totalRounds)}
+                  </h3>
+                  <div className="flex flex-1 flex-col justify-around gap-8">
+                    {roundMatches.map((match) => (
+                      <BracketMatchCard
+                        key={match._id}
+                        match={match}
+                        currentUserId={currentUserId}
+                        isHighlighted={highlightMatchId && String(match._id) === String(highlightMatchId)}
+                      />
                     ))}
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>

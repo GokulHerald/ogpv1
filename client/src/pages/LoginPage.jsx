@@ -9,7 +9,7 @@ import { useAuth } from '../hooks/useAuth.js';
 import { Input } from '../components/ui/Input.jsx';
 import { Button } from '../components/ui/Button.jsx';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner.jsx';
-import { Trophy } from 'lucide-react';
+import { formatPhoneHint } from '../utils/phone.js';
 
 const schema = z.object({
   phoneNumber: z.string().min(1, 'Phone required'),
@@ -51,7 +51,10 @@ export function LoginPage() {
   const onSubmit = async (data) => {
     setSubmitting(true);
     try {
-      const res = await authApi.login(data);
+      const res = await authApi.login({
+        phoneNumber: formatPhoneHint(data.phoneNumber),
+        password: data.password,
+      });
       loginWithResponse(res);
       toast.success('Welcome back');
       navigate(from, { replace: true });
@@ -103,7 +106,12 @@ export function LoginPage() {
             </Link>
           </p>
           <form onSubmit={handleSubmit(onSubmit)} className="mt-10 space-y-5">
-            <Input label="Phone number" {...register('phoneNumber')} error={errors.phoneNumber?.message} />
+            <Input
+              label="Phone number"
+              placeholder="+9779800000011 or 9800000011"
+              {...register('phoneNumber')}
+              error={errors.phoneNumber?.message}
+            />
             <Input label="Password" type="password" {...register('password')} error={errors.password?.message} />
             <Button type="submit" variant="primary" className="w-full" disabled={submitting}>
               {submitting ? <LoadingSpinner className="mx-auto !border-t-white" size="sm" /> : 'Sign in'}

@@ -24,9 +24,16 @@ const TournamentSchema = new Schema(
     /** BR: players per squad including captain (captain + members.length). */
     squadSize: { type: Number, default: 4, min: 2, max: 8 },
 
+    /** BR auto-group: system forms squads from solo players and splits lobbies. */
+    autoGroup: { type: Boolean, default: false },
+    /** BR auto-group: max teams per battle-royale lobby (null = one lobby for all). */
+    lobbySize: { type: Number, min: 2, max: 32, default: null },
+
     organizer: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     registeredPlayers: [{ type: Schema.Types.ObjectId, ref: 'User', default: [] }],
     registeredTeams: [{ type: Schema.Types.ObjectId, ref: 'Team', default: [] }],
+    /** BR auto-group: solo players (already paid) awaiting auto-grouping at start. */
+    soloPool: [{ type: Schema.Types.ObjectId, ref: 'User', default: [] }],
 
     /** BR: winning team after organizer confirms (optional mirror on match). */
     winnerTeam: { type: Schema.Types.ObjectId, ref: 'Team', default: null },

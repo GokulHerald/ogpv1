@@ -5,6 +5,8 @@ import * as tournamentApi from '../api/tournament.api.js';
 import * as matchApi from '../api/match.api.js';
 import { useAuth } from '../hooks/useAuth.js';
 import { BracketView } from '../components/tournament/BracketView.jsx';
+import { YourMatchupCard } from '../components/tournament/YourMatchupCard.jsx';
+import { ParticipantsList } from '../components/tournament/ParticipantsList.jsx';
 import { StreamSubmitForm } from '../components/tournament/StreamSubmitForm.jsx';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner.jsx';
 import { EmptyState } from '../components/ui/EmptyState.jsx';
@@ -43,6 +45,7 @@ export function TournamentDetailPage() {
   const [brWinnerTeamId, setBrWinnerTeamId] = useState('');
   const [payModalOpen, setPayModalOpen] = useState(false);
   const [pendingTeamId, setPendingTeamId] = useState(null);
+  const [payMode, setPayMode] = useState(null);
 
   const refetchLeaderboard = useCallback(async () => {
     try {
@@ -143,12 +146,11 @@ export function TournamentDetailPage() {
 
   const isSquadTournament = tournament?.format === 'battle_royale_squad';
 
-  const myMatch = useMemo(() => {
+  const myBracketMatch = useMemo(() => {
     if (!user?._id) return null;
     const uid = String(user._id);
     return (
       matches.find((m) => {
-        if (m.status === 'completed') return false;
         if (m.kind === 'br_lobby') {
           return (m.brTeams || []).some((slot) =>
             (slot.players || []).some((p) => String(p?._id || p) === uid)
@@ -160,6 +162,11 @@ export function TournamentDetailPage() {
       }) || null
     );
   }, [matches, user?._id]);
+
+  const myMatch = useMemo(() => {
+    if (!myBracketMatch || myBracketMatch.status === 'completed') return null;
+    return myBracketMatch;
+  }, [myBracketMatch]);
 
   const memberSlots = (tournament?.squadSize || 4) - 1;
 
@@ -207,6 +214,8 @@ export function TournamentDetailPage() {
     if (squadRoster?.isRegisteredInTournament) return true;
     const uid = String(user._id);
     if (isSquadTournament) {
+      const inPool = (tournament.soloPool || []).some((p) => String(p._id || p) === uid);
+      if (inPool) return true;
       const teams = tournament.registeredTeams || [];
       return teams.some((team) => {
         if (!team) return false;
@@ -235,37 +244,34 @@ export function TournamentDetailPage() {
     tournament?.status !== 'completed' &&
     tournament?.status !== 'cancelled';
 
-  const opponentUsername = useMemo(() => {
-    if (!myMatch || !user?._id) return '—';
-    if (myMatch.kind === 'br_lobby') return 'Squad battle royale';
-    const uid = String(user._id);
-    const p1 = myMatch.player1?._id ?? myMatch.player1;
-    const p2 = myMatch.player2?._id ?? myMatch.player2;
-    if (p1 != null && String(p1) === uid) {
-      return formatPlayerDisplayName(myMatch.player2);
-    }
-    if (p2 != null && String(p2) === uid) {
-      return formatPlayerDisplayName(myMatch.player1);
-    }
-    return '—';
-  }, [myMatch, user?._id]);
 
-  const brLobbyMatch = useMemo(() => matches.find((m) => m.kind === 'br_lobby'), [matches]);
+  const brLobbies = useMemo(() => matches.filter((m) => m.kind === 'br_lobby'), [matches]);
+  const hasMultipleLobbies = brLobbies.length > 1;
+  const brLobbyMatch = useMemo(
+    () => brLobbies.find((m) => m.status !== 'completed') || brLobbies[0],
+    [brLobbies]
+  );
 
+  // Single-lobby quick panel here; multi-lobby winners are declared per lobby on the Dashboard.
   const showBrWinnerPanel =
     isOrganizer &&
     isOwner &&
     tournament &&
     tournament.status === 'ongoing' &&
+    !hasMultipleLobbies &&
     brLobbyMatch &&
     brLobbyMatch.status !== 'completed';
 
-  const openPayModal = (teamId = null) => {
+  const showMultiLobbyNote =
+    isOrganizer && isOwner && tournament && tournament.status === 'ongoing' && hasMultipleLobbies;
+
+  const openPayModal = (teamId = null, mode = null) => {
     if (tournament && tournament.status !== 'registration') {
       toast.error('Registration is closed for this tournament');
       return;
     }
     setPendingTeamId(teamId);
+    setPayMode(mode);
     setPayModalOpen(true);
   };
 
@@ -296,6 +302,7 @@ export function TournamentDetailPage() {
         const { data } = await paymentApi.initiateKhaltiPayment({
           tournamentId: id,
           teamId: pendingTeamId || undefined,
+          mode: payMode || undefined,
         });
         if (!data?.payment_url) throw new Error('Missing payment URL');
         window.location.href = data.payment_url;
@@ -306,6 +313,7 @@ export function TournamentDetailPage() {
         const { data } = await paymentApi.initiateEsewaPayment({
           tournamentId: id,
           teamId: pendingTeamId || undefined,
+          mode: payMode || undefined,
         });
         if (!data?.esewa_payment_url) throw new Error('Missing eSewa URL');
         const { esewa_payment_url, ...rest } = data;
@@ -349,6 +357,23 @@ export function TournamentDetailPage() {
       toast.error(e.response?.data?.message || 'Failed to load admin stats');
     } finally {
       setAdminStatsLoading(false);
+    }
+  };
+
+  const handleJoinSolo = async () => {
+    setActionLoading(true);
+    try {
+      await tournamentApi.joinSoloPool(id);
+      toast.success('Joined solo pool. You’ll be auto-grouped into a squad when the tournament starts.');
+      await refetchTournament();
+    } catch (e) {
+      if (e.response?.data?.requiresPayment) {
+        openPayModal(null, 'solo');
+      } else {
+        toast.error(e.response?.data?.message || 'Failed to join');
+      }
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -411,7 +436,7 @@ export function TournamentDetailPage() {
     }
     setActionLoading(true);
     try {
-      await tournamentApi.setBrWinner(id, brWinnerTeamId);
+      await tournamentApi.setBrWinner(id, brWinnerTeamId, brLobbyMatch?._id);
       toast.success('Winner recorded; prize credited to captain wallet');
       const [tRes, mRes] = await Promise.all([
         tournamentApi.getTournamentById(id),
@@ -560,6 +585,23 @@ export function TournamentDetailPage() {
             Squads are <strong className="text-brand-light">{tournament.squadSize ?? 4}</strong> players. Create a squad
             to get an invite code, then teammates join using that code (no Mongo IDs).
           </p>
+
+          {tournament.autoGroup ? (
+            <div className="rounded-xl border border-brand-orange/30 bg-brand-orange/5 p-4">
+              <p className="text-sm font-semibold text-brand-light">No team? Join solo.</p>
+              <p className="mt-1 text-xs text-brand-muted">
+                Pay your own entry fee and we’ll auto-group you into a squad when the tournament starts.
+              </p>
+              <Button
+                variant="primary"
+                className="mt-3 !px-4 !py-2 text-sm"
+                disabled={actionLoading}
+                onClick={handleJoinSolo}
+              >
+                {tournament.entryFee > 0 ? `Pay ₹${tournament.entryFee} & join solo` : 'Join solo'}
+              </Button>
+            </div>
+          ) : null}
           <div>
             <label className="mb-1 block text-xs font-medium text-brand-muted" htmlFor="squad-name">
               Squad tag / name (optional)
@@ -654,6 +696,21 @@ export function TournamentDetailPage() {
               Join squad
             </Button>
           </div>
+        </div>
+      ) : null}
+
+      {showMultiLobbyNote ? (
+        <div className="card-surface mt-8 border border-violet-500/25 p-5">
+          <h3 className="font-display text-sm font-bold uppercase tracking-wide text-violet-300">
+            Multiple lobbies
+          </h3>
+          <p className="mt-2 text-sm text-brand-muted">
+            This tournament has {brLobbies.length} battle-royale lobbies. Declare each lobby&apos;s winner from the{' '}
+            <Link to="/dashboard" className="text-brand-orange hover:underline">
+              Dashboard
+            </Link>{' '}
+            (Active matches tab). The prize pool is shared evenly across lobbies.
+          </p>
         </div>
       ) : null}
 
@@ -785,10 +842,31 @@ export function TournamentDetailPage() {
       ) : null}
 
       <section className="mt-12">
+        <h2 className="font-display mb-1 text-xl font-black uppercase tracking-wide text-brand-light">
+          {isSquadTournament ? 'Registered squads' : 'Registered players'}
+        </h2>
+        <p className="mb-4 text-sm text-brand-muted">
+          {isSquadTournament
+            ? `${tournament.registeredTeams?.length ?? 0} squad(s) registered — these are the teams in the battle royale lobby.`
+            : `${tournament.registeredPlayers?.length ?? 0} player(s) registered.`}
+        </p>
+        <div className="card-surface p-4">
+          <ParticipantsList tournament={tournament} />
+        </div>
+      </section>
+
+      <section className="mt-12">
         <h2 className="font-display mb-4 text-xl font-black uppercase tracking-wide text-brand-light">
           Bracket & matches
         </h2>
-        <BracketView matches={matches} />
+        {isAuthenticated && isRegistered && myBracketMatch ? (
+          <YourMatchupCard match={myBracketMatch} currentUserId={user._id} />
+        ) : null}
+        <BracketView
+          matches={matches}
+          currentUserId={user?._id}
+          highlightMatchId={myBracketMatch?._id}
+        />
 
         {showPlayerStreamHint ? (
           <div className="mt-8 rounded-xl border border-dashed border-brand-border bg-brand-subtle/30 p-5">
@@ -848,12 +926,7 @@ export function TournamentDetailPage() {
             </div>
 
             <div className="card-surface space-y-6 p-5">
-              <div className="space-y-1 border-b border-brand-border pb-4">
-                <p className="text-sm text-brand-muted">
-                  Round {myMatch.round} — Match {myMatch.matchNumber}
-                </p>
-                <p className="font-semibold text-brand-light">vs {opponentUsername}</p>
-              </div>
+              <YourMatchupCard match={myMatch} currentUserId={user._id} className="!mb-0 border-0 bg-transparent p-0" />
 
               <StreamSubmitForm
                 match={myMatch}

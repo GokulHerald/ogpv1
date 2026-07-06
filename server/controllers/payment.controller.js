@@ -115,6 +115,19 @@ async function registerTeamAfterPayment(payment, tournament) {
   await Promise.all([t.save(), leaderboard.save()]);
 }
 
+async function registerSoloAfterPayment(payment, tournament) {
+  const t = tournament || (await Tournament.findById(payment.tournament));
+  if (!t) return;
+
+  const playerId = payment.player;
+  const inPool = (t.soloPool || []).some((p) => String(p) === String(playerId));
+  if (!inPool) {
+    t.soloPool.push(playerId);
+    await t.save();
+  }
+  // Leaderboard entry is added when the player is auto-grouped into a squad at start.
+}
+
 async function registerAfterPayment(payment) {
   const tournament = await Tournament.findById(payment.tournament);
   if (!tournament) return;
@@ -123,17 +136,43 @@ async function registerAfterPayment(payment) {
     return;
   }
   if (tournament.format === 'battle_royale_squad') {
-    await registerTeamAfterPayment(payment, tournament);
+    if (payment.metadata?.soloPool) {
+      await registerSoloAfterPayment(payment, tournament);
+    } else {
+      await registerTeamAfterPayment(payment, tournament);
+    }
   } else {
     await registerPlayerAfterPayment(payment, tournament);
   }
+}
+
+/** Returns an error message if the user can't join the solo pool, else null. */
+async function assertCanJoinSolo(tournament, user) {
+  if (!tournament.autoGroup) return 'This tournament does not support solo auto-grouping';
+
+  const userId = String(user._id);
+  if ((tournament.soloPool || []).some((p) => String(p) === userId)) {
+    return 'You are already in the solo pool';
+  }
+
+  const teams = await Team.find({ tournament: tournament._id }).select('captain members');
+  const inTeam = teams.some(
+    (t) => String(t.captain) === userId || (t.members || []).some((m) => String(m) === userId)
+  );
+  if (inTeam) return 'You are already in a squad for this tournament';
+
+  const usedPlayers = teams.reduce((n, t) => n + 1 + (t.members || []).length, 0);
+  if (usedPlayers + (tournament.soloPool || []).length >= tournament.maxPlayers) {
+    return 'Tournament is full';
+  }
+  return null;
 }
 
 // --- eSewa: initiate payment ---
 
 async function initiateEsewaPayment(req, res) {
   try {
-    const { tournamentId, teamId } = req.body;
+    const { tournamentId, teamId, mode } = req.body;
 
     const tournament = await Tournament.findById(tournamentId);
     if (!tournament) {
@@ -152,7 +191,11 @@ async function initiateEsewaPayment(req, res) {
 
     let metadata = {};
 
-    if (tournament.format === 'battle_royale_squad') {
+    if (tournament.format === 'battle_royale_squad' && mode === 'solo') {
+      const err = await assertCanJoinSolo(tournament, req.user);
+      if (err) return res.status(400).json({ message: err });
+      metadata = { soloPool: true };
+    } else if (tournament.format === 'battle_royale_squad') {
       if (!teamId) {
         return res.status(400).json({ message: 'teamId is required for squad tournaments' });
       }
@@ -365,7 +408,7 @@ async function esewaFailure(req, res) {
 
 async function initiateKhaltiPayment(req, res) {
   try {
-    const { tournamentId, teamId } = req.body;
+    const { tournamentId, teamId, mode } = req.body;
 
     const tournament = await Tournament.findById(tournamentId);
     if (!tournament) {
@@ -384,7 +427,11 @@ async function initiateKhaltiPayment(req, res) {
 
     let metadata = {};
 
-    if (tournament.format === 'battle_royale_squad') {
+    if (tournament.format === 'battle_royale_squad' && mode === 'solo') {
+      const err = await assertCanJoinSolo(tournament, req.user);
+      if (err) return res.status(400).json({ message: err });
+      metadata = { soloPool: true };
+    } else if (tournament.format === 'battle_royale_squad') {
       if (!teamId) {
         return res.status(400).json({ message: 'teamId is required for squad tournaments' });
       }
@@ -695,5 +742,7 @@ module.exports = {
   getMyWallet,
   requestWithdrawal,
   processWithdrawal,
+  // Exported so gateway callbacks and tests share the same post-payment registration logic.
+  registerAfterPayment,
 };
 

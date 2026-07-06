@@ -7,6 +7,7 @@ const EmailOtp = require('../models/EmailOtp');
 const { verifyFirebaseToken } = require('../config/firebase');
 const { cloudinary } = require('../config/cloudinary');
 const { sendOtpEmail } = require('../utils/email');
+const { normalizeNepalPhone, phoneLookupVariants, looksLikeEmail } = require('../utils/phone.utils');
 
 function publicIdFromCloudinaryUrl(url) {
   if (!url || typeof url !== 'string' || !url.trim()) return null;
@@ -55,7 +56,8 @@ async function registerStart(req, res) {
     const firstName = String(req.body.firstName || '').trim();
     const lastName = String(req.body.lastName || '').trim();
     const email = normalizeEmail(req.body.email);
-    const phoneNumber = typeof req.body.phoneNumber === 'string' ? req.body.phoneNumber.trim() : '';
+    const phoneRaw = typeof req.body.phoneNumber === 'string' ? req.body.phoneNumber.trim() : '';
+    const phoneNumber = normalizeNepalPhone(phoneRaw) || phoneRaw;
     const { password, role } = req.body;
 
     if (!email) return res.status(400).json({ message: 'Email required' });
@@ -77,7 +79,9 @@ async function registerStart(req, res) {
       return res.status(400).json({ message: 'Email is already registered. Please login.' });
     }
 
-    const existingByPhone = await User.findOne({ phoneNumber });
+    const existingByPhone = await User.findOne({
+      phoneNumber: { $in: phoneLookupVariants(phoneRaw) },
+    });
     if (existingByPhone && existingByPhone.isVerified) {
       return res.status(400).json({ message: 'Phone number is already registered. Please login.' });
     }
@@ -198,9 +202,11 @@ async function verifyOTP(req, res) {
     const { idToken } = req.body;
 
     const decoded = await verifyFirebaseToken(idToken);
-    const phoneNumber = decoded.phone_number;
+    const phoneNumber = normalizeNepalPhone(decoded.phone_number) || decoded.phone_number;
 
-    let user = await User.findOne({ phoneNumber });
+    let user = await User.findOne({
+      phoneNumber: { $in: phoneLookupVariants(decoded.phone_number) },
+    });
 
     if (user && user.isVerified) {
       return res.status(200).json({
@@ -290,20 +296,24 @@ async function completeRegistration(req, res) {
 
 async function login(req, res) {
   try {
-    const identifier = typeof req.body.phoneNumber === 'string'
+    const rawIdentifier = typeof req.body.phoneNumber === 'string'
       ? req.body.phoneNumber.trim()
       : typeof req.body.email === 'string'
         ? normalizeEmail(req.body.email)
         : '';
     const { password } = req.body;
 
-    if (!identifier) {
+    if (!rawIdentifier) {
       return res.status(400).json({ message: 'Phone number or email required' });
     }
 
-    const user = await User.findOne({
-      $or: [{ phoneNumber: identifier }, { email: normalizeEmail(identifier) }],
-    }).select('+password');
+    let user;
+    if (looksLikeEmail(rawIdentifier)) {
+      user = await User.findOne({ email: normalizeEmail(rawIdentifier) }).select('+password');
+    } else {
+      const phoneVariants = phoneLookupVariants(rawIdentifier);
+      user = await User.findOne({ phoneNumber: { $in: phoneVariants } }).select('+password');
+    }
     if (!user) {
       return res.status(404).json({ message: 'No account found with this phone/email' });
     }

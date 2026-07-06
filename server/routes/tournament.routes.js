@@ -12,6 +12,7 @@ const {
   joinSquadByInviteCode,
   getSquadRoster,
   getMySquadForTournament,
+  joinSoloPool,
   startTournament,
   setBrWinner,
   getAdminPlayerStats,
@@ -51,6 +52,7 @@ router.post(
 );
 
 router.post('/:id/register', protect, restrictTo('player'), registerForTournament);
+router.post('/:id/join-solo', protect, restrictTo('player'), joinSoloPool);
 router.post('/:id/squads', protect, restrictTo('player'), registerSquad);
 router.get('/:id/squads/me', protect, restrictTo('player'), getMySquadForTournament);
 router.get(

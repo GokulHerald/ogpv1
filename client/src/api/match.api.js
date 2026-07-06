@@ -31,3 +31,7 @@ export function submitBrStats(matchId, squadStats) {
 export function getLeaderboard(tournamentId) {
   return api.get(`/leaderboard/tournament/${tournamentId}`);
 }
+
+export function getGlobalLeaderboard(params = {}) {
+  return api.get('/leaderboard/global', { params });
+}

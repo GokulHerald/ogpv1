@@ -15,6 +15,7 @@ import { Modal } from '../components/ui/Modal.jsx';
 import { Badge } from '../components/ui/Badge.jsx';
 import { StreamEmbed } from '../components/tournament/StreamEmbed.jsx';
 import { LazyStreamEmbed } from '../components/tournament/LazyStreamEmbed.jsx';
+import { ParticipantsList } from '../components/tournament/ParticipantsList.jsx';
 import { formatPlayerDisplayName } from '../utils/playerDisplay.js';
 
 const tabs = [
@@ -37,6 +38,11 @@ const schema = z
     maxPlayers: z.coerce.number(),
     maxTeams: z.coerce.number(),
     squadSize: z.coerce.number(),
+    winPoints: z.coerce.number().min(0),
+    killPoints: z.coerce.number().min(0),
+    placementBonus: z.coerce.number().min(0),
+    autoGroup: z.boolean().optional(),
+    lobbySize: z.union([z.coerce.number(), z.literal('')]).optional(),
   })
   .superRefine((data, ctx) => {
     if (data.format === 'single-elimination') {
@@ -107,7 +113,7 @@ function BrLobbyOrganizerCard({ match, tournamentName, tournamentId, onRefresh }
     }
     try {
       setDeclaring(true);
-      await tournamentApi.setBrWinner(tournamentId, pickTeamId);
+      await tournamentApi.setBrWinner(tournamentId, pickTeamId, match._id);
       toast.success('Winner set; captain wallet credited');
       await onRefresh();
     } catch (e) {
@@ -620,12 +626,18 @@ export function AdminDashboardPage() {
       maxPlayers: 8,
       maxTeams: 12,
       squadSize: 4,
+      winPoints: 10,
+      killPoints: 2,
+      placementBonus: 5,
+      autoGroup: false,
+      lobbySize: '',
       startDate: new Date().toISOString().slice(0, 10),
     },
   });
 
   const selectedGame = watch('game');
   const createFormat = watch('format');
+  const autoGroupOn = watch('autoGroup');
 
   const flatMatches = useMemo(() => {
     const rows = [];
@@ -662,9 +674,18 @@ export function AdminDashboardPage() {
       if (data.format === 'battle_royale_squad') {
         payload.maxTeams = Number(data.maxTeams);
         payload.squadSize = Number(data.squadSize);
+        payload.autoGroup = Boolean(data.autoGroup);
+        if (payload.autoGroup && data.lobbySize !== '' && Number(data.lobbySize) >= 2) {
+          payload.lobbySize = Number(data.lobbySize);
+        }
       } else {
         payload.maxPlayers = Number(data.maxPlayers);
       }
+      payload.scoring = {
+        winPoints: Number(data.winPoints),
+        killPoints: Number(data.killPoints),
+        placementBonus: Number(data.placementBonus),
+      };
       const res = await tournamentApi.createTournament(payload);
       toast.success('Tournament created');
       reset();
@@ -759,17 +780,33 @@ export function AdminDashboardPage() {
             {tournaments.length === 0 ? (
               <p className="text-brand-muted">You have no tournaments yet. Create one in the Create tab.</p>
             ) : (
-              tournaments.map((t) => (
-                <li key={t._id}>
-                  <Link
-                    to={`/tournaments/${t._id}`}
-                    className="card-surface flex items-center justify-between p-4 hover:shadow-glow-red"
-                  >
-                    <span className="font-display font-bold text-brand-light">{t.name}</span>
-                    <Badge variant="orange">{t.status}</Badge>
-                  </Link>
-                </li>
-              ))
+              tournaments.map((t) => {
+                const isSquad = t.format === 'battle_royale_squad';
+                const registeredCount = isSquad
+                  ? t.registeredTeams?.length ?? 0
+                  : t.registeredPlayers?.length ?? 0;
+                return (
+                  <li key={t._id} className="card-surface p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <Link
+                        to={`/tournaments/${t._id}`}
+                        className="font-display font-bold text-brand-light hover:text-brand-orange"
+                      >
+                        {t.name}
+                      </Link>
+                      <Badge variant="orange">{t.status}</Badge>
+                    </div>
+                    <details className="mt-3">
+                      <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-brand-orange">
+                        {isSquad ? 'Registered squads' : 'Registered players'} ({registeredCount})
+                      </summary>
+                      <div className="mt-3 border-t border-brand-border pt-3">
+                        <ParticipantsList tournament={t} />
+                      </div>
+                    </details>
+                  </li>
+                );
+              })
             )}
           </ul>
         ) : null}
@@ -866,8 +903,49 @@ export function AdminDashboardPage() {
                 <p className="sm:col-span-2 text-xs text-brand-muted">
                   Total capacity = max squads × squad size (max 128).
                 </p>
+                <label className="sm:col-span-2 flex items-start gap-2 rounded-lg border border-brand-border bg-brand-subtle/20 p-3">
+                  <input type="checkbox" className="mt-0.5" {...register('autoGroup')} />
+                  <span className="text-sm text-brand-light">
+                    Enable auto-group
+                    <span className="block text-xs font-normal text-brand-muted">
+                      Players can also join solo (paying their own fee); the system forms squads
+                      automatically when you start. Manual invite-code squads still work alongside this.
+                    </span>
+                  </span>
+                </label>
+                {autoGroupOn ? (
+                  <div className="sm:col-span-2">
+                    <Input
+                      label="Teams per lobby (optional)"
+                      type="number"
+                      placeholder="Leave blank for one lobby"
+                      {...register('lobbySize')}
+                      error={errors.lobbySize?.message}
+                    />
+                    <p className="mt-1 text-xs text-brand-muted">
+                      If more squads register than this, they split into several battle-royale lobbies.
+                      The prize pool is shared evenly across lobbies.
+                    </p>
+                  </div>
+                ) : null}
               </div>
             )}
+            <div>
+              <p className="mb-2 text-sm font-medium text-brand-light">Scoring (points)</p>
+              <div className="grid gap-4 sm:grid-cols-3">
+                <Input label="Win" type="number" {...register('winPoints')} error={errors.winPoints?.message} />
+                <Input label="Per kill" type="number" {...register('killPoints')} error={errors.killPoints?.message} />
+                <Input
+                  label="1st place bonus"
+                  type="number"
+                  {...register('placementBonus')}
+                  error={errors.placementBonus?.message}
+                />
+              </div>
+              <p className="mt-1 text-xs text-brand-muted">
+                How leaderboard points are awarded. Defaults: win 10, kill 2, 1st-place bonus 5.
+              </p>
+            </div>
             <Input label="Start date" type="date" {...register('startDate')} error={errors.startDate?.message} />
             <div>
               <label className="mb-1.5 block text-sm font-medium text-brand-light">Rules (optional)</label>

@@ -1,4 +1,21 @@
 const Leaderboard = require('../models/Leaderboard');
+const { aggregateGlobalLeaderboard } = require('../utils/leaderboard.utils');
+
+async function getGlobalLeaderboard(req, res) {
+  try {
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 100, 1), 200);
+
+    const leaderboards = await Leaderboard.find().populate(
+      'entries.player',
+      'username firstName lastName profilePicture'
+    );
+
+    const players = aggregateGlobalLeaderboard(leaderboards, limit);
+    return res.status(200).json({ players });
+  } catch (error) {
+    return res.status(500).json({ message: error.message || 'Failed to fetch global leaderboard' });
+  }
+}
 
 async function getLeaderboard(req, res) {
   try {
@@ -28,5 +45,5 @@ async function getLeaderboard(req, res) {
   }
 }
 
-module.exports = { getLeaderboard };
+module.exports = { getLeaderboard, getGlobalLeaderboard };
 

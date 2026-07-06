@@ -11,6 +11,7 @@ import { Input } from '../components/ui/Input.jsx';
 import { Button } from '../components/ui/Button.jsx';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner.jsx';
 import { Trophy, Gamepad2, Crown } from 'lucide-react';
+import { formatPhoneHint } from '../utils/phone.js';
 
 const schema = z.object({
   firstName: z.string().min(1, 'First name required').max(50),
@@ -63,7 +64,7 @@ export function RegisterPage() {
         firstName: watch('firstName'),
         lastName: watch('lastName'),
         email: String(watch('email') || '').trim(),
-        phoneNumber: String(watch('phoneNumber') || '').trim(),
+        phoneNumber: formatPhoneHint(String(watch('phoneNumber') || '').trim()),
         username: String(watch('username') || '').trim(),
         password: watch('password'),
         role: watch('role'),
@@ -164,7 +165,12 @@ export function RegisterPage() {
                 <Input label="First name" {...register('firstName')} error={errors.firstName?.message} />
                 <Input label="Last name" {...register('lastName')} error={errors.lastName?.message} />
                 <Input label="Email" {...register('email')} error={errors.email?.message} />
-                <Input label="Phone number" {...register('phoneNumber')} error={errors.phoneNumber?.message} />
+                <Input
+                  label="Phone number"
+                  placeholder="+9779800000011 or 9800000011"
+                  {...register('phoneNumber')}
+                  error={errors.phoneNumber?.message}
+                />
                 <Input label="Username" {...register('username')} error={errors.username?.message} />
                 <div className="space-y-2">
                   <Input
