@@ -9,6 +9,7 @@ import { useAuth } from '../hooks/useAuth.js';
 import { Input } from '../components/ui/Input.jsx';
 import { Button } from '../components/ui/Button.jsx';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner.jsx';
+import { Trophy } from 'lucide-react';
 import { formatPhoneHint } from '../utils/phone.js';
 
 const schema = z.object({
