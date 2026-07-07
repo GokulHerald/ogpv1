@@ -16,12 +16,14 @@ import { Badge } from '../components/ui/Badge.jsx';
 import { StreamEmbed } from '../components/tournament/StreamEmbed.jsx';
 import { LazyStreamEmbed } from '../components/tournament/LazyStreamEmbed.jsx';
 import { ParticipantsList } from '../components/tournament/ParticipantsList.jsx';
+import { BracketView } from '../components/tournament/BracketView.jsx';
 import { formatPlayerDisplayName } from '../utils/playerDisplay.js';
 
 const tabs = [
   { id: 'mine', label: 'My tournaments' },
   { id: 'create', label: 'Create' },
   { id: 'active', label: 'Active matches' },
+  { id: 'bracket', label: 'Bracket' },
   { id: 'verify', label: 'Verify results' },
   { id: 'stats', label: 'Stats' },
 ];
@@ -552,6 +554,7 @@ export function AdminDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [statsTournamentId, setStatsTournamentId] = useState('');
+  const [bracketTournamentId, setBracketTournamentId] = useState('');
   const [statsLoading, setStatsLoading] = useState(false);
   const [statsData, setStatsData] = useState(null);
   const [resultModal, setResultModal] = useState({ open: false, match: null, tournamentId: null });
@@ -631,7 +634,11 @@ export function AdminDashboardPage() {
       placementBonus: 5,
       autoGroup: false,
       lobbySize: '',
-      startDate: new Date().toISOString().slice(0, 10),
+      startDate: (() => {
+        const d = new Date();
+        d.setDate(d.getDate() + 1);
+        return d.toISOString().slice(0, 10);
+      })(),
     },
   });
 
@@ -972,6 +979,37 @@ export function AdminDashboardPage() {
                   onRefresh={load}
                 />
               ))
+            )}
+          </div>
+        ) : null}
+
+        {!loading && tab === 'bracket' ? (
+          <div className="space-y-4">
+            <div className="card-surface flex flex-col gap-3 p-4 sm:flex-row sm:items-end sm:justify-between">
+              <div className="min-w-0 flex-1">
+                <p className="text-xs uppercase tracking-wider text-brand-muted">Tournament</p>
+                <select
+                  className="input mt-2 w-full bg-brand-card"
+                  value={bracketTournamentId}
+                  onChange={(e) => setBracketTournamentId(e.target.value)}
+                >
+                  <option value="">Select a tournament</option>
+                  {tournaments.map((t) => (
+                    <option key={t._id} value={t._id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {!bracketTournamentId ? (
+              <p className="text-brand-muted">
+                Pick a tournament to view its bracket (single-elimination) or lobbies (battle royale).
+                Winners advance automatically as you set results in the Active matches / Verify tabs.
+              </p>
+            ) : (
+              <BracketView matches={matchesByT[bracketTournamentId] || []} />
             )}
           </div>
         ) : null}

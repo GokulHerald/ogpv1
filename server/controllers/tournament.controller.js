@@ -170,8 +170,9 @@ async function getAllTournaments(req, res) {
       filters.game = gameFilter;
     }
     if (joinableOnly) {
+      // Open for sign-up while status is registration. Start date alone does not close listing
+      // (organizer may still be accepting players until they press Start).
       filters.status = 'registration';
-      filters.$or = [{ startDate: null }, { startDate: { $gt: new Date() } }];
     } else if (status) {
       filters.status = status;
     }
