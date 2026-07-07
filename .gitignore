@@ -6,6 +6,7 @@ build/
 
 .env
 .env.local
+.docs/
 
 # Firebase Admin SDK (do not commit)
 **/firebase-service-account.json

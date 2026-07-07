@@ -265,7 +265,8 @@ actual transfer is an admin-approved manual action.
 
 **Organiser Admin Dashboard** is a React UI layer aggregating the above into one management
 interface: tournament creation, active-match monitoring with embedded stream panels, result and
-battle-royale statistics entry, a registered-participants view, and a player statistics report.
+battle-royale statistics entry, a bracket view of the full knockout tree, a registered-participants
+view, and a player statistics report.
 
 ## 1.5 Academic Question
 
@@ -819,8 +820,9 @@ JWT validation on protected routes.
 | AD-F-3.0 | The dashboard shall let the organiser set duel results and submit BR per-squad statistics per lobby. | Functional |
 | AD-F-4.0 | The "My tournaments" tab shall show, per tournament, the list of registered participants (players or squads, and the solo pool). | Functional |
 | AD-F-5.0 | The dashboard shall present a player statistics report aggregating performance across a tournament. | Functional |
+| AD-F-6.0 | The dashboard shall provide a Bracket view where the organiser selects one of their tournaments and sees the full knockout bracket (single-elimination) or lobby layout (battle-royale), with winners highlighted as results are entered. | Functional |
 | AD-NF-1.1 | Stream panels shall lazy-load to prevent browser freeze with multiple simultaneous embeds. | Non-Functional |
-| AD-UR-1.1 | Tabs shall be clearly labelled (My tournaments, Create, Active matches, Verify results, Stats). | Usability |
+| AD-UR-1.1 | Tabs shall be clearly labelled (My tournaments, Create, Active matches, Bracket, Verify results, Stats). | Usability |
 
 ### 5.6.2 Testing
 
@@ -831,9 +833,11 @@ JWT validation on protected routes.
 | T-AD-03 | Submit BR stats per lobby | Lobby finalised, leaderboard updated | PASS |
 | T-AD-04 | View registered participants | Squads/solo pool listed per tournament | PASS |
 | T-AD-05 | Access dashboard as player | Redirected — organiser-only | PASS |
+| T-AD-06 | View bracket for a started tournament | Full bracket tree / lobbies rendered, winners highlighted | PASS |
 
 [SCREENSHOT: dashboard "My tournaments" with registered participants expanded]
 [SCREENSHOT: active matches tab with stream panels]
+[SCREENSHOT: Bracket tab showing the full knockout tree for a started tournament]
 [SCREENSHOT: player statistics report table]
 
 ## 5.7 Wireframes
